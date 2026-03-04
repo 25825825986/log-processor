@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日志数据处理系统</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 轻量级高并发日志数据处理系统</h1>
+            <nav>
+                <button class="nav-btn active" data-tab="dashboard">📊 概览</button>
+                <button class="nav-btn" data-tab="query">🔍 查询</button>
+                <button class="nav-btn" data-tab="config">⚙️ 配置</button>
+                <button class="nav-btn" data-tab="import">📁 导入</button>
+                <button class="nav-btn" data-tab="export">📤 导出</button>
+            </nav>
+        </header>
+
+        <main>
+            <!-- 概览面板 -->
+            <section id="dashboard" class="tab-content active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>总日志数</h3>
+                        <div class="stat-value" id="total-logs">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>错误数</h3>
+                        <div class="stat-value error" id="error-logs">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>平均响应时间</h3>
+                        <div class="stat-value" id="avg-response">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>系统状态</h3>
+                        <div class="stat-value success" id="system-status">运行中</div>
+                    </div>
+                </div>
+                <div class="charts-container">
+                    <div class="chart-box">
+                        <h3>状态码分布</h3>
+                        <div id="status-chart"></div>
+                    </div>
+                    <div class="chart-box">
+                        <h3>请求方法分布</h3>
+                        <div id="method-chart"></div>
+                    </div>
+                    <div class="chart-box full-width">
+                        <h3>时间趋势</h3>
+                        <div id="trend-chart"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 查询面板 -->
+            <section id="query" class="tab-content">
+                <div class="filter-panel">
+                    <h3>筛选条件</h3>
+                    <div class="filter-grid">
+                        <div class="filter-item">
+                            <label>开始时间</label>
+                            <input type="datetime-local" id="filter-start-time">
+                        </div>
+                        <div class="filter-item">
+                            <label>结束时间</label>
+                            <input type="datetime-local" id="filter-end-time">
+                        </div>
+                        <div class="filter-item">
+                            <label>请求方法</label>
+                            <select id="filter-method" multiple>
+                                <option value="GET">GET</option>
+                                <option value="POST">POST</option>
+                                <option value="PUT">PUT</option>
+                                <option value="DELETE">DELETE</option>
+                                <option value="PATCH">PATCH</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label>状态码</label>
+                            <input type="text" id="filter-status" placeholder="例如: 200,404,500">
+                        </div>
+                        <div class="filter-item">
+                            <label>关键词</label>
+                            <input type="text" id="filter-keyword" placeholder="搜索路径、IP等">
+                        </div>
+                    </div>
+                    <div class="filter-actions">
+                        <button class="btn-primary" onclick="queryLogs()">🔍 查询</button>
+                        <button class="btn-secondary" onclick="resetFilters()">重置</button>
+                    </div>
+                </div>
+                <div class="results-panel">
+                    <div class="results-header">
+                        <span id="results-count">共 0 条记录</span>
+                        <div class="pagination">
+                            <button onclick="prevPage()">上一页</button>
+                            <span id="page-info">第 1 页</span>
+                            <button onclick="nextPage()">下一页</button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table id="logs-table">
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>方法</th>
+                                    <th>路径</th>
+                                    <th>状态码</th>
+                                    <th>响应时间</th>
+                                    <th>客户端IP</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 配置面板 -->
+            <section id="config" class="tab-content">
+                <div class="config-tabs">
+                    <button class="config-tab active" data-config="parser">解析配置</button>
+                    <button class="config-tab" data-config="processor">处理配置</button>
+                    <button class="config-tab" data-config="receiver">接收器配置</button>
+                    <button class="config-tab" data-config="storage">存储配置</button>
+                </div>
+
+                <!-- 解析配置 -->
+                <div id="config-parser" class="config-panel active">
+                    <h3>日志解析配置</h3>
+                    <div class="form-group">
+                        <label>日志格式</label>
+                        <select id="parser-format">
+                            <option value="nginx">Nginx</option>
+                            <option value="apache">Apache</option>
+                            <option value="json">JSON</option>
+                            <option value="csv">CSV</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>字段分隔符</label>
+                        <input type="text" id="parser-delimiter" value=" " placeholder="例如: 空格、逗号、制表符">
+                    </div>
+                    <div class="form-group">
+                        <label>时间格式</label>
+                        <input type="text" id="parser-time-format" value="02/Jan/2006:15:04:05 -0700" placeholder="Go时间格式">
+                    </div>
+                    <div class="form-group">
+                        <label>字段映射 (JSON格式)</label>
+                        <textarea id="parser-mapping" rows="8">{
+  "0": "client_ip",
+  "3": "timestamp",
+  "4": "method",
+  "5": "path",
+  "6": "protocol",
+  "8": "status_code",
+  "9": "response_size"
+}</textarea>
+                    </div>
+                </div>
+
+                <!-- 处理配置 -->
+                <div id="config-processor" class="config-panel">
+                    <h3>处理器配置</h3>
+                    <div class="form-group">
+                        <label>工作协程数</label>
+                        <input type="number" id="processor-workers" value="10" min="1" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label>批处理大小</label>
+                        <input type="number" id="processor-batch-size" value="100" min="10" max="1000">
+                    </div>
+                    <div class="form-group">
+                        <label>批处理超时 (毫秒)</label>
+                        <input type="number" id="processor-timeout" value="1000" min="100" max="10000">
+                    </div>
+                    <div class="form-group">
+                        <label>清洗规则 (JSON数组)</label>
+                        <textarea id="processor-clean-rules" rows="6">[
+  {"field": "path", "operation": "trim", "value": ""}
+]</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>过滤规则 (JSON数组)</label>
+                        <textarea id="processor-filter-rules" rows="6">[
+  {"field": "status_code", "operator": "ne", "value": "404"}
+]</textarea>
+                    </div>
+                </div>
+
+                <!-- 接收器配置 -->
+                <div id="config-receiver" class="config-panel">
+                    <h3>接收器配置</h3>
+                    <div class="form-group checkbox-group">
+                        <label><input type="checkbox" id="receiver-tcp" checked> 启用TCP接收器 (端口: <input type="number" id="receiver-tcp-port" value="9000" class="inline-input">)</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <label><input type="checkbox" id="receiver-udp" checked> 启用UDP接收器 (端口: <input type="number" id="receiver-udp-port" value="9001" class="inline-input">)</label>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <label><input type="checkbox" id="receiver-http" checked> 启用HTTP接收器 (端口: <input type="number" id="receiver-http-port" value="9002" class="inline-input">)</label>
+                    </div>
+                    <div class="form-group">
+                        <label>缓冲区大小 (字节)</label>
+                        <input type="number" id="receiver-buffer" value="8192" min="1024" max="65536">
+                    </div>
+                </div>
+
+                <!-- 存储配置 -->
+                <div id="config-storage" class="config-panel">
+                    <h3>存储配置</h3>
+                    <div class="form-group">
+                        <label>存储类型</label>
+                        <select id="storage-type">
+                            <option value="sqlite">SQLite</option>
+                            <option value="memory">内存 (仅测试)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>数据库路径</label>
+                        <input type="text" id="storage-db-path" value="./data/logs.db">
+                    </div>
+                    <div class="form-group">
+                        <label>数据保留时间 (小时)</label>
+                        <input type="number" id="storage-retention" value="168" min="1" max="720">
+                    </div>
+                </div>
+
+                <div class="config-actions">
+                    <button class="btn-primary" onclick="saveConfig()">💾 保存配置</button>
+                    <button class="btn-secondary" onclick="loadConfig()">🔄 重新加载</button>
+                </div>
+            </section>
+
+            <!-- 导入面板 -->
+            <section id="import" class="tab-content">
+                <div class="import-area">
+                    <h3>📁 日志文件导入</h3>
+                    <div class="upload-zone" id="upload-zone">
+                        <div class="upload-icon">📤</div>
+                        <p>拖拽文件到此处或点击上传</p>
+                        <input type="file" id="file-input" accept=".log,.txt,.csv,.json" multiple>
+                        <p class="upload-hint">支持格式: .log, .txt, .csv, .json</p>
+                    </div>
+                    <div class="upload-progress" id="upload-progress" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                        <p id="progress-text">正在上传...</p>
+                    </div>
+                    <div class="upload-results" id="upload-results"></div>
+                </div>
+            </section>
+
+            <!-- 导出面板 -->
+            <section id="export" class="tab-content">
+                <div class="export-area">
+                    <h3>📤 数据导出</h3>
+                    <div class="export-form">
+                        <div class="form-group">
+                            <label>导出格式</label>
+                            <select id="export-format">
+                                <option value="excel">Excel (.xlsx)</option>
+                                <option value="csv">CSV (.csv)</option>
+                                <option value="json">JSON (.json)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>文件名</label>
+                            <input type="text" id="export-filename" placeholder="logs_export">
+                        </div>
+                        <div class="form-group">
+                            <label>时间范围</label>
+                            <div class="date-range">
+                                <input type="datetime-local" id="export-start-time">
+                                <span>至</span>
+                                <input type="datetime-local" id="export-end-time">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>状态码过滤</label>
+                            <input type="text" id="export-status" placeholder="例如: 200,404,500">
+                        </div>
+                        <button class="btn-primary" onclick="exportLogs()">📥 导出数据</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>轻量级高并发日志数据处理系统 | Go + Gin + SQLite</p>
+        </footer>
+    </div>
+
+    <!-- 日志详情弹窗 -->
+    <div class="modal" id="log-modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <h3>日志详情</h3>
+            <pre id="log-detail"></pre>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
