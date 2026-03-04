@@ -1,6 +1,7 @@
 // 全局状态
 let currentPage = 1;
 let currentLimit = 20;
+let currentTotal = 0;
 let currentFilter = {};
 let currentTab = 'dashboard';
 
@@ -85,6 +86,7 @@ async function handleFiles(files) {
     
     progressDiv.style.display = 'block';
     resultsDiv.innerHTML = '';
+    let hasSuccess = false;
     
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -100,24 +102,36 @@ async function handleFiles(files) {
                 body: formData
             });
             
-            const result = await response.json();
+            let result;
+            const text = await response.text();
+            try {
+                result = JSON.parse(text);
+            } catch (e) {
+                result = { error: text || 'Unknown error' };
+            }
             
             if (response.ok) {
-                resultsDiv.innerHTML += `<div class="upload-success">✅ ${file.name}: 成功导入 ${result.lines} 条记录</div>`;
+                resultsDiv.innerHTML += `<div class="upload-success"><i class="iconfont icon-success"></i> ${file.name}: 成功导入 ${result.lines} 条记录 (接受 ${result.accepted || result.lines} 条)</div>`;
+                hasSuccess = true;
             } else {
-                resultsDiv.innerHTML += `<div class="upload-error">❌ ${file.name}: ${result.error}</div>`;
+                resultsDiv.innerHTML += `<div class="upload-error"><i class="iconfont icon-error"></i> ${file.name}: ${result.error || '导入失败'}</div>`;
             }
         } catch (error) {
-            resultsDiv.innerHTML += `<div class="upload-error">❌ ${file.name}: ${error.message}</div>`;
+            resultsDiv.innerHTML += `<div class="upload-error"><i class="iconfont icon-error"></i> ${file.name}: ${error.message}</div>`;
         }
     }
     
     progressFill.style.width = '100%';
-    progressText.textContent = '上传完成';
+    progressText.textContent = hasSuccess ? '上传完成' : '上传失败';
+    
+    // 如果导入成功，刷新数据
+    if (hasSuccess && currentTab === 'dashboard') {
+        setTimeout(() => loadDashboard(), 500);
+    }
     
     setTimeout(() => {
         progressDiv.style.display = 'none';
-    }, 2000);
+    }, 3000);
 }
 
 // 加载仪表板数据
@@ -239,9 +253,10 @@ async function queryLogs() {
         const response = await fetch(`/api/logs?${params}`);
         const result = await response.json();
         
+        currentTotal = result.total || 0;
         renderLogsTable(result.data);
-        document.getElementById('results-count').textContent = `共 ${result.total} 条记录`;
-        document.getElementById('page-info').textContent = `第 ${currentPage} 页`;
+        document.getElementById('results-count').textContent = `共 ${currentTotal} 条记录`;
+        updatePagination();
     } catch (error) {
         console.error('Failed to query logs:', error);
     }
@@ -312,8 +327,30 @@ function prevPage() {
 }
 
 function nextPage() {
-    currentPage++;
-    queryLogs();
+    const maxPage = Math.ceil(currentTotal / currentLimit);
+    if (currentPage < maxPage) {
+        currentPage++;
+        queryLogs();
+    }
+}
+
+// 更新分页按钮状态
+function updatePagination() {
+    const maxPage = Math.max(1, Math.ceil(currentTotal / currentLimit));
+    document.getElementById('page-info').textContent = `第 ${currentPage} / ${maxPage} 页`;
+    
+    // 禁用/启用按钮
+    const prevBtn = document.querySelector('.pagination button:first-child');
+    const nextBtn = document.querySelector('.pagination button:last-child');
+    
+    if (prevBtn) {
+        prevBtn.disabled = currentPage <= 1;
+        prevBtn.style.opacity = currentPage <= 1 ? '0.5' : '1';
+    }
+    if (nextBtn) {
+        nextBtn.disabled = currentPage >= maxPage || currentTotal === 0;
+        nextBtn.style.opacity = (currentPage >= maxPage || currentTotal === 0) ? '0.5' : '1';
+    }
 }
 
 // 加载配置

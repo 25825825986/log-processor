@@ -1,3 +1,55 @@
+/* 阿里巴巴矢量图标库样式 - 统一单色 */
+.iconfont {
+    font-size: inherit;
+    color: inherit;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
+/* 导航按钮中的图标 */
+.nav-btn .iconfont {
+    font-size: 16px;
+    color: inherit;
+}
+
+/* 标题中的图标 */
+h1 .iconfont {
+    font-size: 28px;
+    color: var(--primary-color);
+}
+
+h3 .iconfont {
+    font-size: 20px;
+    color: var(--primary-color);
+}
+
+/* 按钮中的图标 */
+.btn-primary .iconfont,
+.btn-secondary .iconfont {
+    font-size: 14px;
+    color: inherit;
+}
+
+/* 上传区域图标 */
+.upload-icon .iconfont {
+    font-size: 48px;
+    color: var(--primary-color);
+}
+
+/* 上传结果图标 */
+.upload-success .iconfont {
+    font-size: 16px;
+    color: #28A745;
+    margin-right: 6px;
+}
+
+.upload-error .iconfont {
+    font-size: 16px;
+    color: #DC3545;
+    margin-right: 6px;
+}
+
 /* 全局样式 */
 * {
     margin: 0;
@@ -183,6 +235,32 @@ main {
     border: 1px solid var(--border-color);
     border-radius: 6px;
     font-size: 14px;
+    background-color: white;
+    min-height: 36px;
+}
+
+/* 多选下拉框样式统一 - 与其他输入框高度一致，保持滚动条 */
+.filter-item select[multiple] {
+    height: 36px;
+    min-height: 36px;
+    padding: 4px 8px;
+    overflow-y: auto;
+}
+
+.filter-item select[multiple] option {
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin: 1px 0;
+    font-size: 13px;
+}
+
+.filter-item select[multiple] option:hover {
+    background-color: var(--bg-color);
+}
+
+.filter-item select[multiple] option:checked {
+    background-color: var(--primary-color);
+    color: white;
 }
 
 .filter-actions {
@@ -239,11 +317,31 @@ main {
 }
 
 .pagination button {
-    padding: 5px 15px;
+    padding: 6px 16px;
     border: 1px solid var(--border-color);
     background: white;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.pagination button:hover:not(:disabled) {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.pagination button:disabled {
+    cursor: not-allowed;
+    background: var(--bg-color);
+}
+
+.pagination span {
+    font-size: 14px;
+    color: var(--text-secondary);
+    min-width: 80px;
+    text-align: center;
 }
 
 .table-container {
@@ -395,6 +493,29 @@ tr:hover {
 
 #file-input {
     display: none;
+}
+
+/* 上传结果样式 */
+.upload-results {
+    margin-top: 20px;
+}
+
+.upload-success {
+    padding: 12px 16px;
+    background: #D4EDDA;
+    color: #155724;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    border-left: 4px solid #28A745;
+}
+
+.upload-error {
+    padding: 12px 16px;
+    background: #F8D7DA;
+    color: #721C24;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    border-left: 4px solid #DC3545;
 }
 
 .upload-progress {

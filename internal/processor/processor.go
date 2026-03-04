@@ -24,6 +24,8 @@ type Processor struct {
 	wg          sync.WaitGroup
 	ctx         context.Context
 	cancel      context.CancelFunc
+	mu          sync.RWMutex
+	stopped     bool
 }
 
 // Parser 解析器接口
@@ -118,16 +120,43 @@ func (p *Processor) Start() {
 
 // Stop 停止处理器
 func (p *Processor) Stop() {
+	p.mu.Lock()
+	p.stopped = true
+	p.mu.Unlock()
+	
 	p.cancel()
 	close(p.inputChan)
-	p.wg.Wait()
+	
+	// 使用超时等待，避免永久卡住
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// 正常完成
+	case <-time.After(5 * time.Second):
+		log.Println("[WARN] 处理器停止超时，强制关闭")
+	}
+	
 	close(p.outputChan)
 	log.Println("Processor stopped")
 }
 
 // Submit 提交日志行
 func (p *Processor) Submit(line string) bool {
+	p.mu.RLock()
+	if p.stopped {
+		p.mu.RUnlock()
+		return false
+	}
+	p.mu.RUnlock()
+
 	select {
+	case <-p.ctx.Done():
+		return false
 	case p.inputChan <- line:
 		return true
 	default:

@@ -29,7 +29,7 @@ type LogEntry struct {
 // NewLogEntry 创建新的日志条目
 func NewLogEntry() *LogEntry {
 	return &LogEntry{
-		ID:          uuid.New().String(),
+		ID:          NewUUID(),
 		ExtraFields: make(map[string]string),
 		CreatedAt:   time.Now(),
 	}

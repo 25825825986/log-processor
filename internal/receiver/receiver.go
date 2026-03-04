@@ -295,7 +295,11 @@ func (r *HTTPReceiver) Start(handler Handler) error {
 	}
 
 	log.Printf("HTTP receiver listening on port %d", r.port)
-	return r.server.ListenAndServe()
+	err := r.server.ListenAndServe()
+	if err == http.ErrServerClosed {
+		return nil // 正常关闭，不是错误
+	}
+	return err
 }
 
 // handleLogs 处理日志提交

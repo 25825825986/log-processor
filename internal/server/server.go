@@ -189,12 +189,13 @@ func (s *Server) importLogs(c *gin.Context) {
 		return
 	}
 
-	// 导入文件
+	// 导入文件 - 使用同步处理避免 channel panic
 	importer := receiver.NewFileImporter()
-	lineCount := 0
+	lines := make([]string, 0)
+	
+	// 先读取所有行
 	err = importer.ImportFile(tempPath, func(line string) {
-		s.processor.Submit(line)
-		lineCount++
+		lines = append(lines, line)
 	})
 
 	if err != nil {
@@ -202,9 +203,18 @@ func (s *Server) importLogs(c *gin.Context) {
 		return
 	}
 
+	// 再提交到处理器
+	successCount := 0
+	for _, line := range lines {
+		if s.processor.Submit(line) {
+			successCount++
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"status":     "ok",
-		"lines":      lineCount,
+		"lines":      len(lines),
+		"accepted":   successCount,
 		"file":       file.Filename,
 	})
 }
