@@ -5,19 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>日志数据处理系统</title>
         <link rel="stylesheet" href="/static/css/style.css">
-    <!-- 阿里巴巴矢量图标库 -->
-    <link rel="stylesheet" href="https://at.alicdn.com/t/font_3044623_rvj9haxgm5.css">
+    <!-- Font Awesome 图标库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1><i class="iconfont icon-rocket"></i> 轻量级高并发日志数据处理系统</h1>
+            <h1><i class="fas fa-rocket"></i> 轻量级高并发日志数据处理系统</h1>
             <nav>
-                <button class="nav-btn active" data-tab="dashboard"><i class="iconfont icon-dashboard"></i> 概览</button>
-                <button class="nav-btn" data-tab="query"><i class="iconfont icon-search"></i> 查询</button>
-                <button class="nav-btn" data-tab="config"><i class="iconfont icon-setting"></i> 配置</button>
-                <button class="nav-btn" data-tab="import"><i class="iconfont icon-folder-open"></i> 导入</button>
-                <button class="nav-btn" data-tab="export"><i class="iconfont icon-export"></i> 导出</button>
+                <button class="nav-btn active" data-tab="dashboard"><i class="fas fa-chart-line"></i> 概览</button>
+                <button class="nav-btn" data-tab="query"><i class="fas fa-search"></i> 查询</button>
+                <button class="nav-btn" data-tab="config"><i class="fas fa-cog"></i> 配置</button>
+                <button class="nav-btn" data-tab="import"><i class="fas fa-folder-open"></i> 导入</button>
+                <button class="nav-btn" data-tab="export"><i class="fas fa-share-from-square"></i> 导出</button>
             </nav>
         </header>
 
@@ -91,7 +91,7 @@
                         </div>
                     </div>
                     <div class="filter-actions">
-                        <button class="btn-primary" onclick="queryLogs()"><i class="iconfont icon-search"></i> 查询</button>
+                        <button class="btn-primary" onclick="queryLogs()"><i class="fas fa-search"></i> 查询</button>
                         <button class="btn-secondary" onclick="resetFilters()">重置</button>
                     </div>
                 </div>
@@ -236,17 +236,17 @@
                 </div>
 
                 <div class="config-actions">
-                    <button class="btn-primary" onclick="saveConfig()"><i class="iconfont icon-save"></i> 保存配置</button>
-                    <button class="btn-secondary" onclick="loadConfig()"><i class="iconfont icon-reload"></i> 重新加载</button>
+                    <button class="btn-primary" onclick="saveConfig()"><i class="fas fa-save"></i> 保存配置</button>
+                    <button class="btn-secondary" onclick="loadConfig()"><i class="fas fa-rotate-right"></i> 重新加载</button>
                 </div>
             </section>
 
             <!-- 导入面板 -->
             <section id="import" class="tab-content">
                 <div class="import-area">
-                    <h3><i class="iconfont icon-folder-open"></i> 日志文件导入</h3>
+                    <h3><i class="fas fa-folder-open"></i> 日志文件导入</h3>
                     <div class="upload-zone" id="upload-zone">
-                        <div class="upload-icon"><i class="iconfont icon-upload"></i></div>
+                        <div class="upload-icon"><i class="fas fa-cloud-arrow-up"></i></div>
                         <p>拖拽文件到此处或点击上传</p>
                         <input type="file" id="file-input" accept=".log,.txt,.csv,.json" multiple>
                         <p class="upload-hint">支持格式: .log, .txt, .csv, .json</p>
@@ -264,7 +264,7 @@
             <!-- 导出面板 -->
             <section id="export" class="tab-content">
                 <div class="export-area">
-                    <h3><i class="iconfont icon-export"></i> 数据导出</h3>
+                    <h3><i class="fas fa-share-from-square"></i> 数据导出</h3>
                     <div class="export-form">
                         <div class="form-group">
                             <label>导出格式</label>
@@ -290,7 +290,7 @@
                             <label>状态码过滤</label>
                             <input type="text" id="export-status" placeholder="例如: 200,404,500">
                         </div>
-                        <button class="btn-primary" onclick="exportLogs()"><i class="iconfont icon-download"></i> 导出数据</button>
+                        <button class="btn-primary" onclick="exportLogs()"><i class="fas fa-download"></i> 导出数据</button>
                     </div>
                 </div>
             </section>

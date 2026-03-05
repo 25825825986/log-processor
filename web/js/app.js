@@ -111,13 +111,13 @@ async function handleFiles(files) {
             }
             
             if (response.ok) {
-                resultsDiv.innerHTML += `<div class="upload-success"><i class="iconfont icon-success"></i> ${file.name}: 成功导入 ${result.lines} 条记录 (接受 ${result.accepted || result.lines} 条)</div>`;
+                resultsDiv.innerHTML += `<div class="upload-success"><i class="fas fa-check-circle"></i> ${file.name}: 成功导入 ${result.lines} 条记录 (接受 ${result.accepted || result.lines} 条)</div>`;
                 hasSuccess = true;
             } else {
-                resultsDiv.innerHTML += `<div class="upload-error"><i class="iconfont icon-error"></i> ${file.name}: ${result.error || '导入失败'}</div>`;
+                resultsDiv.innerHTML += `<div class="upload-error"><i class="fas fa-times-circle"></i> ${file.name}: ${result.error || '导入失败'}</div>`;
             }
         } catch (error) {
-            resultsDiv.innerHTML += `<div class="upload-error"><i class="iconfont icon-error"></i> ${file.name}: ${error.message}</div>`;
+            resultsDiv.innerHTML += `<div class="upload-error"><i class="fas fa-times-circle"></i> ${file.name}: ${error.message}</div>`;
         }
     }
     

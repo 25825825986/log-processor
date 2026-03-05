@@ -1,5 +1,5 @@
-/* 阿里巴巴矢量图标库样式 - 统一单色 */
-.iconfont {
+/* Font Awesome 图标样式 - 统一单色 */
+.fas {
     font-size: inherit;
     color: inherit;
     display: inline-block;
@@ -8,43 +8,45 @@
 }
 
 /* 导航按钮中的图标 */
-.nav-btn .iconfont {
-    font-size: 16px;
+.nav-btn .fas {
+    font-size: 14px;
     color: inherit;
+    width: 18px;
+    text-align: center;
 }
 
 /* 标题中的图标 */
-h1 .iconfont {
-    font-size: 28px;
+h1 .fas {
+    font-size: 24px;
     color: var(--primary-color);
 }
 
-h3 .iconfont {
-    font-size: 20px;
+h3 .fas {
+    font-size: 18px;
     color: var(--primary-color);
 }
 
 /* 按钮中的图标 */
-.btn-primary .iconfont,
-.btn-secondary .iconfont {
-    font-size: 14px;
+.btn-primary .fas,
+.btn-secondary .fas {
+    font-size: 13px;
     color: inherit;
 }
 
 /* 上传区域图标 */
-.upload-icon .iconfont {
+.upload-icon .fas {
     font-size: 48px;
     color: var(--primary-color);
 }
 
 /* 上传结果图标 */
-.upload-success .iconfont {
+.upload-success .fas {
     font-size: 16px;
     color: #28A745;
     margin-right: 6px;
 }
 
-.upload-error .iconfont {
+.upload-error .fas {
     font-size: 16px;
     color: #DC3545;
     margin-right: 6px;
