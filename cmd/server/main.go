@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"log-processor/internal/config"
 	"log-processor/internal/parser"
@@ -15,6 +16,7 @@ import (
 	"log-processor/internal/storage"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -25,7 +27,23 @@ func main() {
 	flag.StringVar(&configPath, "config", "./config.json", "配置文件路径")
 	flag.Parse()
 
+	// 创建日志目录
+	os.MkdirAll("./logs", 0755)
+	
+	// 设置日志文件
+	logFileName := filepath.Join("./logs", time.Now().Format("2006-01-02_15-04-05")+".log")
+	logFile, err := os.OpenFile(logFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("无法创建日志文件: %v", err)
+	}
+	defer logFile.Close()
+	
+	// 同时输出到终端和文件
+	multiWriter := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(multiWriter)
+	
 	log.Println("[START] 启动日志数据处理系统...")
+	log.Printf("[INFO] 运行日志保存至: %s", logFileName)
 	log.Printf("[TIP] 提示: 按 Ctrl+C 或输入 'exit' 停止服务")
 
 	// 加载配置

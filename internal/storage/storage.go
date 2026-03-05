@@ -23,6 +23,8 @@ type Storage interface {
 	Query(filter models.FilterCondition, limit, offset int) ([]*models.LogEntry, error)
 	Count(filter models.FilterCondition) (int64, error)
 	Statistics(filter models.FilterCondition) (*models.Statistics, error)
+	Delete(id string) error
+	Clear() error
 	Close() error
 }
 
@@ -398,6 +400,43 @@ func (s *SQLiteStorage) cleanup() {
 
 	// 优化数据库
 	s.db.Exec("VACUUM")
+}
+
+// Delete 删除单条日志
+func (s *SQLiteStorage) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec("DELETE FROM logs WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if affected == 0 {
+		return fmt.Errorf("log not found: %s", id)
+	}
+
+	return nil
+}
+
+// Clear 清空所有日志
+func (s *SQLiteStorage) Clear() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec("DELETE FROM logs")
+	if err != nil {
+		return err
+	}
+
+	// 优化数据库
+	_, err = s.db.Exec("VACUUM")
+	return err
 }
 
 // Close 关闭存储

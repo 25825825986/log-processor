@@ -51,6 +51,20 @@ func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Proces
 
 // setupRoutes 设置路由
 func (s *Server) setupRoutes() {
+	// CORS 中间件
+	s.router.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		
+		c.Next()
+	})
+	
 	// 静态文件
 	s.router.Static("/static", "./web")
 	s.router.LoadHTMLFiles("./web/index.html")
@@ -70,6 +84,8 @@ func (s *Server) setupRoutes() {
 		// 日志查询
 		api.GET("/logs", s.queryLogs)
 		api.POST("/logs/import", s.importLogs)
+		api.DELETE("/logs/:id", s.deleteLog)
+		api.DELETE("/logs", s.clearLogs)
 
 		// 统计分析
 		api.GET("/statistics", s.getStatistics)
@@ -217,6 +233,32 @@ func (s *Server) importLogs(c *gin.Context) {
 		"accepted":   successCount,
 		"file":       file.Filename,
 	})
+}
+
+// deleteLog 删除单条日志
+func (s *Server) deleteLog(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID is required"})
+		return
+	}
+
+	if err := s.storage.Delete(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "Log deleted"})
+}
+
+// clearLogs 清空所有日志
+func (s *Server) clearLogs(c *gin.Context) {
+	if err := s.storage.Clear(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "All logs cleared"})
 }
 
 // getStatistics 获取统计信息

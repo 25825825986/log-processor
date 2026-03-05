@@ -281,10 +281,102 @@ function renderLogsTable(logs) {
             <td><span class="status-tag status-${log.status_code}">${log.status_code || '-'}</span></td>
             <td>${log.response_time ? log.response_time + 'ms' : '-'}</td>
             <td>${log.client_ip || '-'}</td>
-            <td><button class="btn-view" onclick='viewLogDetail(${JSON.stringify(log)})'>查看</button></td>
+            <td>
+                <button class="btn-view" data-log='${JSON.stringify(log).replace(/'/g, "&#39;")}'><i class="fas fa-eye"></i></button>
+                <button class="btn-delete" data-id="${log.id}"><i class="fas fa-trash"></i></button>
+            </td>
         `;
         tbody.appendChild(row);
     });
+    
+    // 绑定事件监听器
+    tbody.querySelectorAll('.btn-view').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const log = JSON.parse(btn.dataset.log);
+            viewLogDetail(log);
+        });
+    });
+    
+    tbody.querySelectorAll('.btn-delete').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.id;
+            deleteLog(id);
+        });
+    });
+}
+
+// 删除单条日志
+async function deleteLog(id) {
+    if (!confirm('确定要删除这条日志吗？')) {
+        return;
+    }
+    
+    try {
+        // 对 ID 进行 URL 编码，避免特殊字符问题
+        const encodedId = encodeURIComponent(id);
+        const response = await fetch(`/api/logs/${encodedId}`, {
+            method: 'DELETE'
+        });
+        
+        const text = await response.text();
+        console.log('Delete response:', response.status, text);
+        
+        let result;
+        try {
+            result = JSON.parse(text);
+        } catch (e) {
+            result = { error: text || '解析响应失败' };
+        }
+        
+        if (response.ok) {
+            alert('删除成功');
+            queryLogs(); // 刷新列表
+            // 如果当前在概览页，也刷新统计数据
+            if (currentTab === 'dashboard') {
+                loadDashboard();
+            }
+        } else {
+            alert('删除失败: ' + (result.error || `HTTP ${response.status}`));
+        }
+    } catch (error) {
+        console.error('Delete error:', error);
+        alert('删除失败: ' + error.message);
+    }
+}
+
+// 清空所有日志
+async function clearAllLogs() {
+    const count = document.getElementById('results-count').textContent;
+    if (!confirm(`确定要清空所有日志吗？\n\n${count}\n\n此操作不可恢复！`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/logs', {
+            method: 'DELETE'
+        });
+        
+        const text = await response.text();
+        let result;
+        try {
+            result = JSON.parse(text);
+        } catch (e) {
+            result = { error: text || 'Unknown error' };
+        }
+        
+        if (response.ok) {
+            alert('已清空所有日志');
+            queryLogs(); // 刷新列表
+            // 刷新概览数据
+            if (currentTab === 'dashboard') {
+                loadDashboard();
+            }
+        } else {
+            alert('清空失败: ' + (result.error || '未知错误'));
+        }
+    } catch (error) {
+        alert('清空失败: ' + error.message);
+    }
 }
 
 // 截断字符串
