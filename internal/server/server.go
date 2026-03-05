@@ -3,6 +3,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"log-processor/internal/config"
 	"log-processor/internal/exporter"
@@ -12,6 +13,7 @@ import (
 	"log-processor/internal/receiver"
 	"log-processor/internal/storage"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -31,9 +33,13 @@ type Server struct {
 }
 
 // NewServer 创建新服务器
-func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Processor, recv *receiver.Manager) *Server {
+func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Processor, recv *receiver.Manager, logFile *os.File) *Server {
 	gin.SetMode(gin.ReleaseMode)
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Recovery())
+	// 使用自定义 Logger，同时输出到终端和文件，并添加描述
+	loggerConfig := customLoggerConfig(io.MultiWriter(os.Stdout, logFile))
+	router.Use(gin.LoggerWithConfig(loggerConfig))
 
 	s := &Server{
 		config:        cfg,
@@ -353,4 +359,82 @@ func (s *Server) startReceiver(c *gin.Context) {
 func (s *Server) stopReceiver(c *gin.Context) {
 	// 接收器控制逻辑
 	c.JSON(http.StatusOK, gin.H{"status": "not implemented"})
+}
+
+// customLoggerConfig 返回自定义的 Gin Logger 配置，添加简短描述
+func customLoggerConfig(writer io.Writer) gin.LoggerConfig {
+	return gin.LoggerConfig{
+		Output: writer,
+		Formatter: func(param gin.LogFormatterParams) string {
+			// 根据状态码和方法生成简短描述
+			desc := getAccessDescription(param.StatusCode, param.Method, param.Path)
+			
+			return fmt.Sprintf("[ACCESS] %s | %3d | %13v | %15s | %-7s %s | %s\n",
+				param.TimeStamp.Format("2006/01/02 15:04:05"),
+				param.StatusCode,
+				param.Latency,
+				param.ClientIP,
+				param.Method,
+				param.Path,
+				desc,
+			)
+		},
+	}
+}
+
+// getAccessDescription 根据状态码和方法返回简短描述
+func getAccessDescription(statusCode int, method, path string) string {
+	// 首先根据状态码判断
+	switch {
+	case statusCode >= 500:
+		return "[服务器错误]"
+	case statusCode == 404:
+		return "[资源未找到]"
+	case statusCode == 403:
+		return "[禁止访问]"
+	case statusCode == 401:
+		return "[未授权]"
+	case statusCode >= 400:
+		return "[请求错误]"
+	case statusCode >= 300:
+		return "[重定向]"
+	}
+	
+	// 200/201 成功状态，根据路径和方法进一步描述
+	if statusCode >= 200 && statusCode < 300 {
+		// 静态资源
+		if path == "/" || path == "/index.html" || path == "/favicon.ico" {
+			return "[访问首页]"
+		}
+		if path == "/static/css/style.css" || path == "/static/js/app.js" {
+			return "[加载资源]"
+		}
+		
+		// API 接口
+		switch path {
+		case "/api/config":
+			return "[获取配置]"
+		case "/api/statistics":
+			return "[获取统计]"
+		case "/api/logs":
+			if method == "GET" {
+				return "[查询日志]"
+			}
+			return "[清空日志]"
+		case "/api/logs/import":
+			return "[导入日志]"
+		case "/api/export":
+			return "[导出数据]"
+		case "/api/status":
+			return "[获取状态]"
+		default:
+			// 处理带参数的日志删除
+			if len(path) > 10 && path[:10] == "/api/logs/" {
+				return "[删除日志]"
+			}
+			return "[接口调用]"
+		}
+	}
+	
+	return "[未知操作]"
 }

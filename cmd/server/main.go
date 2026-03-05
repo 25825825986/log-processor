@@ -88,7 +88,7 @@ func main() {
 	}
 
 	// 初始化Web服务器
-	srv := server.NewServer(cfg, store, proc, recvManager)
+	srv := server.NewServer(cfg, store, proc, recvManager, logFile)
 
 	// 创建可取消的上下文
 	ctx, cancel := context.WithCancel(context.Background())
