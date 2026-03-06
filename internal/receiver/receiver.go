@@ -75,7 +75,13 @@ func (m *Manager) Start(handler Handler) error {
 	}
 
 	if m.config.HTTPEnabled {
-		httpReceiver := NewHTTPReceiver(m.config.HTTPPort)
+		httpReceiver := NewHTTPReceiver(
+			m.config.HTTPPort,
+			m.config.HTTPAuthToken,
+			m.config.HTTPAllowedIPs,
+			m.config.HTTPMaxBodySize,
+			m.config.HTTPRateLimit,
+		)
 		m.receivers = append(m.receivers, httpReceiver)
 		m.wg.Add(1)
 		go func() {
@@ -269,15 +275,31 @@ func (r *UDPReceiver) Stop() error {
 
 // HTTPReceiver HTTP接收器
 type HTTPReceiver struct {
-	port    int
-	server  *http.Server
-	handler Handler
+	port         int
+	authToken    string
+	allowedIPs   []string
+	maxBodySize  int64
+	rateLimit    int
+	server       *http.Server
+	handler      Handler
+	requestCount map[string]int // IP -> 请求计数
+	lastReset    time.Time
+	mu           sync.Mutex
 }
 
 // NewHTTPReceiver 创建HTTP接收器
-func NewHTTPReceiver(port int) *HTTPReceiver {
+func NewHTTPReceiver(port int, authToken string, allowedIPs []string, maxBodySize int64, rateLimit int) *HTTPReceiver {
+	if maxBodySize == 0 {
+		maxBodySize = 10 * 1024 * 1024 // 默认10MB
+	}
 	return &HTTPReceiver{
-		port: port,
+		port:         port,
+		authToken:    authToken,
+		allowedIPs:   allowedIPs,
+		maxBodySize:  maxBodySize,
+		rateLimit:    rateLimit,
+		requestCount: make(map[string]int),
+		lastReset:    time.Now(),
 	}
 }
 
@@ -290,11 +312,23 @@ func (r *HTTPReceiver) Start(handler Handler) error {
 	mux.HandleFunc("/health", r.handleHealth)
 
 	r.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", r.port),
-		Handler: mux,
+		Addr:         fmt.Sprintf(":%d", r.port),
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	log.Printf("HTTP receiver listening on port %d", r.port)
+	if r.authToken != "" {
+		log.Printf("HTTP receiver auth token enabled")
+	}
+	if len(r.allowedIPs) > 0 {
+		log.Printf("HTTP receiver IP whitelist: %v", r.allowedIPs)
+	}
+	if r.rateLimit > 0 {
+		log.Printf("HTTP receiver rate limit: %d requests/min per IP", r.rateLimit)
+	}
+
 	err := r.server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil // 正常关闭，不是错误
@@ -302,30 +336,139 @@ func (r *HTTPReceiver) Start(handler Handler) error {
 	return err
 }
 
+// checkAuth 检查认证
+func (r *HTTPReceiver) checkAuth(req *http.Request) bool {
+	// 如果未配置Token，允许匿名访问（但不推荐）
+	if r.authToken == "" {
+		return true
+	}
+
+	// 从Header或Query参数获取Token
+	token := req.Header.Get("X-Auth-Token")
+	if token == "" {
+		token = req.URL.Query().Get("token")
+	}
+
+	return token == r.authToken
+}
+
+// checkIPAllowed 检查IP白名单
+func (r *HTTPReceiver) checkIPAllowed(req *http.Request) bool {
+	if len(r.allowedIPs) == 0 {
+		return true
+	}
+
+	clientIP := getClientIP(req)
+	for _, ip := range r.allowedIPs {
+		if ip == clientIP {
+			return true
+		}
+	}
+	return false
+}
+
+// checkRateLimit 检查速率限制
+func (r *HTTPReceiver) checkRateLimit(req *http.Request) bool {
+	if r.rateLimit <= 0 {
+		return true
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 每分钟重置计数器
+	if time.Since(r.lastReset) > time.Minute {
+		r.requestCount = make(map[string]int)
+		r.lastReset = time.Now()
+	}
+
+	clientIP := getClientIP(req)
+	r.requestCount[clientIP]++
+
+	return r.requestCount[clientIP] <= r.rateLimit
+}
+
+// getClientIP 获取客户端真实IP
+func getClientIP(req *http.Request) string {
+	// 优先从X-Forwarded-For获取（代理场景）
+	xff := req.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// 从X-Real-Ip获取
+	xri := req.Header.Get("X-Real-Ip")
+	if xri != "" {
+		return xri
+	}
+
+	// 直接连接IP
+	host, _, _ := net.SplitHostPort(req.RemoteAddr)
+	return host
+}
+
 // handleLogs 处理日志提交
 func (r *HTTPReceiver) handleLogs(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
 
+	// 检查IP白名单
+	if !r.checkIPAllowed(req) {
+		log.Printf("[SECURITY] Blocked request from IP: %s (not in whitelist)", getClientIP(req))
+		http.Error(w, `{"error":"Forbidden"}`, http.StatusForbidden)
+		return
+	}
+
+	// 检查认证
+	if !r.checkAuth(req) {
+		log.Printf("[SECURITY] Unauthorized request from IP: %s", getClientIP(req))
+		http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// 检查速率限制
+	if !r.checkRateLimit(req) {
+		log.Printf("[SECURITY] Rate limit exceeded for IP: %s", getClientIP(req))
+		http.Error(w, `{"error":"Rate limit exceeded"}`, http.StatusTooManyRequests)
+		return
+	}
+
+	// 限制请求体大小
+	req.Body = http.MaxBytesReader(w, req.Body, r.maxBodySize)
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		log.Printf("[SECURITY] Request too large from IP: %s", getClientIP(req))
+		http.Error(w, `{"error":"Request too large"}`, http.StatusRequestEntityTooLarge)
 		return
 	}
 	defer req.Body.Close()
 
+	// 限制处理行数，防止DoS
 	lines := strings.Split(string(body), "\n")
+	if len(lines) > 10000 {
+		log.Printf("[SECURITY] Too many lines from IP: %s (%d lines)", getClientIP(req), len(lines))
+		http.Error(w, `{"error":"Too many lines (max 10000)"}`, http.StatusBadRequest)
+		return
+	}
+
+	processedCount := 0
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			r.handler(line)
+			processedCount++
 		}
 	}
 
+	log.Printf("[HTTP] Processed %d lines from %s", processedCount, getClientIP(req))
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	w.Write([]byte(fmt.Sprintf(`{"status":"ok","processed":%d}`, processedCount)))
 }
 
 // handleHealth 健康检查

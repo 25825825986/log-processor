@@ -201,15 +201,33 @@
                 <!-- 接收器配置 -->
                 <div id="config-receiver" class="config-panel">
                     <h3>接收器配置</h3>
+                    
+                    <h4>TCP/UDP 接收器</h4>
                     <div class="form-group checkbox-group">
                         <label><input type="checkbox" id="receiver-tcp" checked> 启用TCP接收器 (端口: <input type="number" id="receiver-tcp-port" value="9000" class="inline-input">)</label>
                     </div>
                     <div class="form-group checkbox-group">
                         <label><input type="checkbox" id="receiver-udp" checked> 启用UDP接收器 (端口: <input type="number" id="receiver-udp-port" value="9001" class="inline-input">)</label>
                     </div>
+                    
+                    <h4 style="margin-top: 20px;">HTTP 接收器</h4>
                     <div class="form-group checkbox-group">
                         <label><input type="checkbox" id="receiver-http" checked> 启用HTTP接收器 (端口: <input type="number" id="receiver-http-port" value="9002" class="inline-input">)</label>
                     </div>
+                    <div class="form-group">
+                        <label>认证 Token <span class="hint">(留空则不启用认证)</span></label>
+                        <input type="text" id="receiver-http-token" placeholder="例如: secret-token-123" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label>IP 白名单 <span class="hint">(逗号分隔，留空则不限制)</span></label>
+                        <input type="text" id="receiver-http-ips" placeholder="例如: 127.0.0.1,192.168.1.100">
+                    </div>
+                    <div class="form-group">
+                        <label>速率限制 <span class="hint">(每分钟最大请求数，0为不限制)</span></label>
+                        <input type="number" id="receiver-http-rate" value="0" min="0" max="10000">
+                    </div>
+                    
+                    <h4 style="margin-top: 20px;">通用配置</h4>
                     <div class="form-group">
                         <label>缓冲区大小 (字节)</label>
                         <input type="number" id="receiver-buffer" value="8192" min="1024" max="65536">
@@ -311,6 +329,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=3"></script>
+    <script src="/static/js/app.js?v=5"></script>
 </body>
 </html>

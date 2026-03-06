@@ -89,6 +89,32 @@ go run cmd/server/main.go -config ./config.json
 | UDP 接收器 | 9001 | 接收 UDP 日志流 |
 | HTTP 接收器 | 9002 | 接收 HTTP POST 日志 |
 
+### HTTP 接收器安全配置
+
+为了防止未授权访问和恶意注入，HTTP 接收器支持以下安全机制：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `http_auth_token` | 访问认证 Token，为空则不启用 | 空 |
+| `http_allowed_ips` | IP 白名单列表，为空则不限制 | 空 |
+| `http_max_body_size` | 最大请求体大小（字节） | 10MB |
+| `http_rate_limit` | 每 IP 每分钟最大请求数，0 为不限制 | 0 |
+
+#### 使用认证 Token 发送日志
+
+```bash
+# 方式1: Header 传递 Token
+curl -X POST http://localhost:9002/logs \
+  -H "X-Auth-Token: your-secret-token" \
+  -H "Content-Type: text/plain" \
+  -d 'your log line'
+
+# 方式2: Query 参数传递 Token
+curl -X POST "http://localhost:9002/logs?token=your-secret-token" \
+  -H "Content-Type: text/plain" \
+  -d 'your log line'
+```
+
 ### 配置文件示例
 
 ```json

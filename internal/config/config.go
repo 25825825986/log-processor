@@ -117,6 +117,12 @@ type ReceiverConfig struct {
 	HTTPEnabled bool `json:"http_enabled"`
 	HTTPPort    int  `json:"http_port"`
 
+	// HTTP安全认证配置
+	HTTPAuthToken    string   `json:"http_auth_token,omitempty"`    // 认证Token，为空则不启用
+	HTTPAllowedIPs   []string `json:"http_allowed_ips,omitempty"`   // IP白名单，为空则不限制
+	HTTPMaxBodySize  int64    `json:"http_max_body_size,omitempty"` // 最大请求体大小(字节)，默认10MB
+	HTTPRateLimit    int      `json:"http_rate_limit,omitempty"`    // 每分钟最大请求数，0为不限制
+
 	// 文件监控配置
 	FileWatcherEnabled bool     `json:"file_watcher_enabled"`
 	WatchPaths         []string `json:"watch_paths,omitempty"`

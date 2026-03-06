@@ -111,8 +111,22 @@ async function handleFiles(files) {
             }
             
             if (response.ok) {
-                resultsDiv.innerHTML += `<div class="upload-success"><i class="fas fa-check-circle"></i> ${file.name}: 成功导入 ${result.lines} 条记录 (接受 ${result.accepted || result.lines} 条)</div>`;
-                hasSuccess = true;
+                if (result.status === 'warning') {
+                    // 格式不匹配警告
+                    resultsDiv.innerHTML += `
+                        <div class="upload-warning">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            <strong>${file.name}</strong>: ${result.warning}
+                            <div style="margin-top: 8px; font-size: 12px; color: #666;">
+                                检测到格式: ${result.detected_format || 'unknown'} | 当前配置: ${result.current_format || 'unknown'}
+                            </div>
+                        </div>`;
+                } else if (result.lines > 0 && result.accepted === 0) {
+                    resultsDiv.innerHTML += `<div class="upload-error"><i class="fas fa-times-circle"></i> ${file.name}: 导入失败，请检查配置格式是否匹配</div>`;
+                } else {
+                    resultsDiv.innerHTML += `<div class="upload-success"><i class="fas fa-check-circle"></i> ${file.name}: 成功导入 ${result.lines} 条记录 (接受 ${result.accepted || result.lines} 条)</div>`;
+                    hasSuccess = true;
+                }
             } else {
                 resultsDiv.innerHTML += `<div class="upload-error"><i class="fas fa-times-circle"></i> ${file.name}: ${result.error || '导入失败'}</div>`;
             }
@@ -552,6 +566,9 @@ async function loadConfig() {
         document.getElementById('receiver-udp-port').value = config.receiver?.udp_port || 9001;
         document.getElementById('receiver-http').checked = config.receiver?.http_enabled ?? true;
         document.getElementById('receiver-http-port').value = config.receiver?.http_port || 9002;
+        document.getElementById('receiver-http-token').value = config.receiver?.http_auth_token || '';
+        document.getElementById('receiver-http-ips').value = (config.receiver?.http_allowed_ips || []).join(',');
+        document.getElementById('receiver-http-rate').value = config.receiver?.http_rate_limit || 0;
         document.getElementById('receiver-buffer').value = config.receiver?.buffer_size || 8192;
         
         document.getElementById('storage-type').value = config.storage?.type || 'sqlite';
@@ -590,6 +607,9 @@ async function saveConfig() {
             udp_port: parseInt(document.getElementById('receiver-udp-port').value),
             http_enabled: document.getElementById('receiver-http').checked,
             http_port: parseInt(document.getElementById('receiver-http-port').value),
+            http_auth_token: document.getElementById('receiver-http-token').value,
+            http_allowed_ips: document.getElementById('receiver-http-ips').value.split(',').map(s => s.trim()).filter(s => s),
+            http_rate_limit: parseInt(document.getElementById('receiver-http-rate').value) || 0,
             buffer_size: parseInt(document.getElementById('receiver-buffer').value),
             file_watcher_enabled: false,
             watch_paths: [],

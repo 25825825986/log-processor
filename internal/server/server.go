@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -221,8 +222,8 @@ func (s *Server) importLogs(c *gin.Context) {
 		return
 	}
 
-	log.Printf("[IMPORT] 开始导入文件: %s", file.Filename)
-	log.Printf("[IMPORT] 当前解析格式: %s", s.config.Get().Parser.Format)
+	currentFormat := s.config.Get().Parser.Format
+	log.Printf("[IMPORT] 开始导入文件: %s, 当前解析格式: %s", file.Filename, currentFormat)
 
 	// 导入文件 - 使用同步处理避免 channel panic
 	importer := receiver.NewFileImporter()
@@ -238,9 +239,36 @@ func (s *Server) importLogs(c *gin.Context) {
 		return
 	}
 
+	if len(lines) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"status":   "ok",
+			"lines":    0,
+			"accepted": 0,
+			"file":     file.Filename,
+			"warning":  "文件为空",
+		})
+		return
+	}
+
 	log.Printf("[IMPORT] 读取到 %d 行数据", len(lines))
-	if len(lines) > 0 {
-		log.Printf("[IMPORT] 第一行样例: %s", lines[0][:min(100, len(lines[0]))])
+	log.Printf("[IMPORT] 第一行样例: %s", lines[0][:min(100, len(lines[0]))])
+
+	// 检测文件格式是否与配置匹配
+	detectedFormat := detectLogFormat(lines[0])
+	log.Printf("[IMPORT] 检测到文件格式: %s, 当前配置: %s", detectedFormat, currentFormat)
+
+	// 检查格式是否匹配
+	if !isFormatCompatible(detectedFormat, currentFormat) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":   "warning",
+			"lines":    len(lines),
+			"accepted": 0,
+			"file":     file.Filename,
+			"warning":  fmt.Sprintf("文件格式为 [%s]，但当前配置为 [%s]。请前往「配置」页面修改解析格式后再导入。", detectedFormat, currentFormat),
+			"detected_format": detectedFormat,
+			"current_format":  currentFormat,
+		})
+		return
 	}
 
 	// 再提交到处理器
@@ -261,6 +289,65 @@ func (s *Server) importLogs(c *gin.Context) {
 		"accepted":   successCount,
 		"file":       file.Filename,
 	})
+}
+
+// detectLogFormat 检测日志格式
+func detectLogFormat(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) == 0 {
+		return "unknown"
+	}
+
+	// 检测 JSON 格式
+	if (strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}")) ||
+		(strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]")) {
+		return "json"
+	}
+
+	// 检测 CSV 格式（简单判断是否有多个逗号分隔）
+	if strings.Count(trimmed, ",") > 2 && !strings.Contains(trimmed, " ") {
+		return "csv"
+	}
+
+	// 检测 Nginx/Apache 格式（包含IP地址和时间戳格式）
+	// 典型特征: IP地址 + - - + [时间]
+	if strings.Contains(trimmed, " - - [") && strings.Contains(trimmed, "\"") {
+		return "nginx"
+	}
+
+	// 检测是否包含常见日志字段
+	if strings.Contains(trimmed, "GET ") || strings.Contains(trimmed, "POST ") {
+		if strings.Contains(trimmed, "HTTP/1.") {
+			return "nginx"
+		}
+	}
+
+	// 检测 Syslog 格式
+	if strings.Contains(trimmed, "]: ") && (strings.HasPrefix(trimmed, "<") || strings.Contains(trimmed, ": ")) {
+		return "syslog"
+	}
+
+	return "unknown"
+}
+
+// isFormatCompatible 检查文件格式与配置是否兼容
+func isFormatCompatible(fileFormat, configFormat string) bool {
+	// 完全匹配
+	if fileFormat == configFormat {
+		return true
+	}
+
+	// 特殊兼容规则
+	switch configFormat {
+	case "custom":
+		// custom 格式可以处理多种格式
+		return true
+	case "nginx", "apache":
+		// nginx 和 apache 格式相似，可以互相兼容
+		return fileFormat == "nginx" || fileFormat == "apache"
+	}
+
+	return false
 }
 
 // deleteLog 删除单条日志
