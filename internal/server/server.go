@@ -124,10 +124,29 @@ func (s *Server) Run() error {
 	return s.router.Run(addr)
 }
 
-// getConfig 获取配置
+// getConfig 获取配置（过滤敏感信息）
 func (s *Server) getConfig(c *gin.Context) {
 	cfg := s.config.Get()
-	c.JSON(http.StatusOK, cfg)
+	
+	// 出于安全考虑，不返回敏感配置（如认证Token）
+	c.JSON(http.StatusOK, gin.H{
+		"server": cfg.Server,
+		"parser": cfg.Parser,
+		"processor": cfg.Processor,
+		"storage": cfg.Storage,
+		"receiver": gin.H{
+			"tcp_enabled":       cfg.Receiver.TCPEnabled,
+			"tcp_port":          cfg.Receiver.TCPPort,
+			"udp_enabled":       cfg.Receiver.UDPEnabled,
+			"udp_port":          cfg.Receiver.UDPPort,
+			"http_enabled":      cfg.Receiver.HTTPEnabled,
+			"http_port":         cfg.Receiver.HTTPPort,
+			"http_auth_token":   cfg.Receiver.HTTPAuthToken != "", // 只返回是否启用，不返回值
+			"http_allowed_ips":  cfg.Receiver.HTTPAllowedIPs,
+			"http_rate_limit":   cfg.Receiver.HTTPRateLimit,
+			"buffer_size":       cfg.Receiver.BufferSize,
+		},
+	})
 }
 
 // updateConfig 更新配置
@@ -459,13 +478,27 @@ func (s *Server) getExportFormats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"formats": formats})
 }
 
-// getStatus 获取系统状态
+// getStatus 获取系统状态（过滤敏感信息）
 func (s *Server) getStatus(c *gin.Context) {
 	cfg := s.config.Get()
 	stats := s.processor.GetStats()
 
+	// 只返回基本配置信息，过滤敏感字段
 	c.JSON(http.StatusOK, gin.H{
-		"config":    cfg,
+		"config": gin.H{
+			"server":    cfg.Server,
+			"parser":    cfg.Parser,
+			"processor": cfg.Processor,
+			"receiver": gin.H{
+				"tcp_enabled":  cfg.Receiver.TCPEnabled,
+				"tcp_port":     cfg.Receiver.TCPPort,
+				"udp_enabled":  cfg.Receiver.UDPEnabled,
+				"udp_port":     cfg.Receiver.UDPPort,
+				"http_enabled": cfg.Receiver.HTTPEnabled,
+				"http_port":    cfg.Receiver.HTTPPort,
+			},
+			"storage": cfg.Storage,
+		},
 		"processor": stats,
 		"timestamp": time.Now(),
 	})
