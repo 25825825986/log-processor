@@ -40,9 +40,33 @@ go run cmd/server/main.go
 go run cmd/server/main.go -config ./config.json
 ```
 
-### 3. 访问 Web 界面
+### 3. 导入测试数据
+
+**使用开源数据集（推荐用于学术研究和功能测试）：**
+
+```bash
+# 方法1: 使用 NASA 公开日志（1995年真实数据，约130万条记录）
+cd example
+wget ftp://ita.ee.lbl.gov/traces/NASA_access_log_Jul95.gz
+gunzip NASA_access_log_Jul95.gz
+
+# 方法2: 生成自定义模拟数据
+python example/generate_logs.py -n 10000 -f nginx -o my_logs.txt
+
+# 方法3: 使用格式转换脚本处理其他数据集
+python example/convert_logs.py input.csv output.txt --input-format csv
+```
+
+更多数据集信息见 [example/DATASETS.md](example/DATASETS.md)
+
+### 4. 访问 Web 界面
 
 打开浏览器访问：http://localhost:8080
+
+- **概览**：查看统计图表、状态码分布
+- **查询**：按时间、状态码等筛选日志
+- **导入**：拖拽上传日志文件
+- **配置**：修改解析格式、调整并发参数
 
 ## 系统架构
 

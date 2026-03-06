@@ -1,5 +1,13 @@
 # 测试日志文件 - Nginx 格式
-# 可以直接通过 Web 界面的"导入"功能上传此文件
+# 
+# 说明：这是本系统提供的模拟数据，用于快速功能测试
+# 数据内容：手工编写的模拟 Nginx 访问日志（非真实生产数据）
+# 
+# 如需使用真实开源数据集，请查看：
+# - example/DATASETS.md（推荐 NASA HTTP 日志等公开数据集）
+# - example/generate_logs.py（自定义生成脚本）
+#
+# 使用方法：直接通过 Web 界面的"导入"功能上传此文件
 
 127.0.0.1 - - [04/Mar/2024:10:30:01 +0800] "GET /api/users HTTP/1.1" 200 1234 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 127.0.0.1 - - [04/Mar/2024:10:30:02 +0800] "POST /api/login HTTP/1.1" 200 256 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
