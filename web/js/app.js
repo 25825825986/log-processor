@@ -344,6 +344,89 @@ async function deleteLog(id) {
     }
 }
 
+// 导出日志
+async function exportLogs() {
+    const format = document.getElementById('export-format').value;
+    const filename = document.getElementById('export-filename').value || 'logs_export';
+    const startTime = document.getElementById('export-start-time').value;
+    const endTime = document.getElementById('export-end-time').value;
+    const statusCodesInput = document.getElementById('export-status').value;
+    
+    console.log('Export params:', { startTime, endTime, statusCodesInput });
+    
+    const filter = {};
+    if (startTime) {
+        filter.start_time = new Date(startTime).toISOString();
+    }
+    if (endTime) {
+        filter.end_time = new Date(endTime).toISOString();
+    }
+    if (statusCodesInput) {
+        const codes = statusCodesInput.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+        if (codes.length > 0) {
+            filter.status_codes = codes;
+        }
+    }
+    
+    console.log('Export filter:', filter);
+    
+    const request = {
+        format: format,
+        file_name: filename,
+        filter: filter
+    };
+    
+    try {
+        const response = await fetch('/api/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request)
+        });
+        
+        if (response.ok) {
+            const contentType = response.headers.get('content-type');
+            // 如果返回的是 JSON，说明是错误信息
+            if (contentType && contentType.includes('application/json')) {
+                const result = await response.json();
+                if (result.error) {
+                    alert('导出失败: ' + result.error);
+                    return;
+                }
+            }
+            
+            // 获取 blob 并检查大小
+            const blob = await response.blob();
+            console.log('Export blob size:', blob.size, 'type:', blob.type);
+            
+            if (blob.size === 0) {
+                alert('导出数据为空，请检查筛选条件');
+                return;
+            }
+            
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename + (format === 'excel' ? '.xlsx' : format === 'csv' ? '.csv' : '.json');
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            alert('导出成功，共导出数据到文件');
+        } else {
+            const text = await response.text();
+            let result;
+            try {
+                result = JSON.parse(text);
+            } catch (e) {
+                result = { error: text };
+            }
+            alert('导出失败: ' + (result.error || '未知错误'));
+        }
+    } catch (error) {
+        alert('导出失败: ' + error.message);
+    }
+}
+
 // 清空所有日志
 async function clearAllLogs() {
     const count = document.getElementById('results-count').textContent;
@@ -534,51 +617,6 @@ async function saveConfig() {
         }
     } catch (error) {
         alert('保存失败: ' + error.message);
-    }
-}
-
-// 导出日志
-async function exportLogs() {
-    const format = document.getElementById('export-format').value;
-    const filename = document.getElementById('export-filename').value || 'logs_export';
-    const startTime = document.getElementById('export-start-time').value;
-    const endTime = document.getElementById('export-end-time').value;
-    const statusCodes = document.getElementById('export-status').value.split(',').filter(s => s).map(s => parseInt(s.trim()));
-    
-    const filter = {};
-    if (startTime) filter.start_time = new Date(startTime).toISOString();
-    if (endTime) filter.end_time = new Date(endTime).toISOString();
-    if (statusCodes.length) filter.status_codes = statusCodes;
-    
-    const request = {
-        format: format,
-        file_name: filename,
-        filter: filter
-    };
-    
-    try {
-        const response = await fetch('/api/export', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(request)
-        });
-        
-        if (response.ok) {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename + (format === 'excel' ? '.xlsx' : format === 'csv' ? '.csv' : '.json');
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        } else {
-            const result = await response.json();
-            alert('导出失败: ' + result.error);
-        }
-    } catch (error) {
-        alert('导出失败: ' + error.message);
     }
 }
 

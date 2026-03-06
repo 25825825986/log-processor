@@ -12,6 +12,13 @@ import (
 	"time"
 )
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Processor 数据处理器
 type Processor struct {
 	config      config.ProcessorConfig
@@ -190,7 +197,7 @@ func (p *Processor) processLine(line string) {
 	// 解析
 	entry, err := p.parser.Parse(line)
 	if err != nil {
-		log.Printf("Parse error: %v, line: %s", err, line)
+		log.Printf("[PROCESSOR] Parse error: %v, line: %s", err, line[:min(50, len(line))])
 		return
 	}
 
@@ -400,6 +407,11 @@ func (p *Processor) UpdateConfig(cfg config.ProcessorConfig) {
 	p.cleanRules = make([]CleanRule, 0)
 	p.filterRules = make([]FilterRule, 0)
 	p.initRules(cfg)
+}
+
+// SetParser 设置解析器
+func (p *Processor) SetParser(parser Parser) {
+	p.parser = parser
 }
 
 // GetStats 获取处理统计

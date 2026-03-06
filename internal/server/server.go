@@ -21,6 +21,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Server Web服务器
 type Server struct {
 	config         *config.Config
@@ -140,6 +147,9 @@ func (s *Server) updateConfig(c *gin.Context) {
 
 	// 更新处理器配置
 	s.processor.UpdateConfig(newConfig.Processor)
+	
+	// 更新处理器的解析器（因为解析器配置已改变）
+	s.processor.SetParser(s.parser)
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -211,6 +221,9 @@ func (s *Server) importLogs(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[IMPORT] 开始导入文件: %s", file.Filename)
+	log.Printf("[IMPORT] 当前解析格式: %s", s.config.Get().Parser.Format)
+
 	// 导入文件 - 使用同步处理避免 channel panic
 	importer := receiver.NewFileImporter()
 	lines := make([]string, 0)
@@ -225,6 +238,11 @@ func (s *Server) importLogs(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[IMPORT] 读取到 %d 行数据", len(lines))
+	if len(lines) > 0 {
+		log.Printf("[IMPORT] 第一行样例: %s", lines[0][:min(100, len(lines[0]))])
+	}
+
 	// 再提交到处理器
 	successCount := 0
 	for _, line := range lines {
@@ -232,6 +250,10 @@ func (s *Server) importLogs(c *gin.Context) {
 			successCount++
 		}
 	}
+
+	log.Printf("[IMPORT] 成功提交 %d 行到处理器", successCount)
+	// 等待处理器处理完成（简单等待1秒）
+	time.Sleep(1 * time.Second)
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":     "ok",
@@ -295,14 +317,26 @@ func (s *Server) getStatistics(c *gin.Context) {
 func (s *Server) exportLogs(c *gin.Context) {
 	var req models.ExportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[EXPORT] 解析请求失败: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Printf("[EXPORT] 筛选条件: StartTime=%v, EndTime=%v, StatusCodes=%v", 
+		req.Filter.StartTime, req.Filter.EndTime, req.Filter.StatusCodes)
+
 	// 查询数据
 	entries, err := s.storage.Query(req.Filter, 10000, 0)
 	if err != nil {
+		log.Printf("[EXPORT] 查询失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	log.Printf("[EXPORT] 查询到 %d 条记录", len(entries))
+
+	if len(entries) == 0 {
+		c.JSON(http.StatusOK, gin.H{"error": "没有符合条件的数据"})
 		return
 	}
 
@@ -324,6 +358,7 @@ func (s *Server) exportLogs(c *gin.Context) {
 
 	outputPath := filepath.Join("./exports", filename+exporter.GetExtension())
 	if err := exporter.Export(entries, outputPath); err != nil {
+		log.Printf("[EXPORT] 导出失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
