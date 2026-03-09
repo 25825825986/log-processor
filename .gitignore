@@ -40,3 +40,8 @@ config.json
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Papers and thesis documents (private)
+papers/
+thesis/
+docs/private/

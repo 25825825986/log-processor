@@ -1,4 +1,5 @@
 {
+  "_comment": "日志处理器配置示例 - 根据需求选择合适的配置",
   "server": {
     "host": "0.0.0.0",
     "port": 8080
@@ -15,9 +16,9 @@
     }
   },
   "processor": {
-    "worker_count": 10,
-    "batch_size": 5000,
-    "batch_timeout": 1000,
+    "worker_count": 20,
+    "batch_size": 2000,
+    "batch_timeout": 500,
     "clean_rules": [],
     "filter_rules": []
   },
@@ -28,7 +29,7 @@
     "udp_port": 9001,
     "http_enabled": true,
     "http_port": 9002,
-    "buffer_size": 65536
+    "buffer_size": 8192
   },
   "storage": {
     "type": "sqlite",

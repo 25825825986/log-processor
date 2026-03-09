@@ -69,26 +69,31 @@ docker-run:
 # 性能测试 - 需要先启动服务器
 benchmark-tcp:
 	@echo "TCP 并发测试 (10万条，100并发)..."
-	cd example && python benchmark.py -protocol tcp -addr localhost:9000 -total 100000 -c 100
+	cd example/benchmark && python stress_test.py -protocol tcp -addr localhost:9000 -total 100000 -c 100
 
 benchmark-udp:
 	@echo "UDP 并发测试 (5万条，50并发)..."
-	cd example && python benchmark.py -protocol udp -addr localhost:9001 -total 50000 -c 50
+	cd example/benchmark && python stress_test.py -protocol udp -addr localhost:9001 -total 50000 -c 50
 
 benchmark-http:
 	@echo "HTTP 并发测试 (10万条，100并发)..."
-	cd example && python benchmark.py -protocol http -addr localhost:9002 -total 100000 -c 100
+	cd example/benchmark && python stress_test.py -protocol http -addr localhost:9002 -total 100000 -c 100
 
 benchmark-http-batch:
 	@echo "HTTP 批量测试 (10万条，50并发，每批100条)..."
-	cd example && python benchmark.py -protocol http -addr localhost:9002 -total 100000 -c 50 -batch 100
+	cd example/benchmark && python stress_test.py -protocol http -addr localhost:9002 -total 100000 -c 50 -batch 100
 
 benchmark-all: benchmark-tcp benchmark-udp benchmark-http
+
+# 查找系统最大处理能力
+benchmark-find-max:
+	@echo "正在查找系统最大处理能力..."
+	cd example/benchmark && python find_max_capacity.py -protocol tcp -addr localhost:9000
 
 # 编译基准测试工具
 build-benchmark:
 	@echo "Building benchmark tool..."
-	cd example && go build -o benchmark.exe benchmark.go
+	cd example/benchmark && go build -o stress_test.exe stress_test.go
 
 # 帮助
 help:
@@ -103,7 +108,9 @@ help:
 	@echo "  build-all      - Build for all platforms"
 	@echo "  docker-build   - Build Docker image"
 	@echo "  docker-run     - Run Docker container"
-	@echo "  benchmark-tcp  - TCP benchmark test"
-	@echo "  benchmark-udp  - UDP benchmark test"
-	@echo "  benchmark-http - HTTP benchmark test"
-	@echo "  benchmark-all  - All benchmark tests"
+	@echo "  benchmark-tcp      - TCP benchmark test"
+	@echo "  benchmark-udp      - UDP benchmark test"
+	@echo "  benchmark-http     - HTTP benchmark test"
+	@echo "  benchmark-all      - All benchmark tests"
+	@echo "  benchmark-find-max - Find max capacity"
+	@echo "  build-benchmark    - Build benchmark tool"
