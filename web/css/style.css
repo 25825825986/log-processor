@@ -509,6 +509,75 @@ tr:hover {
     margin-left: 5px;
 }
 
+/* 时间格式卡片选择器 */
+.time-format-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.time-format-card {
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fff;
+}
+
+.time-format-card:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(68, 114, 196, 0.15);
+}
+
+.time-format-card.selected {
+    border-color: var(--primary-color);
+    background: #f0f5ff;
+}
+
+.time-format-card .card-name {
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--text-color);
+    margin-bottom: 4px;
+}
+
+.time-format-card .card-example {
+    font-size: 12px;
+    color: #666;
+    font-family: 'Consolas', monospace;
+}
+
+.time-format-card.selected .card-name {
+    color: var(--primary-color);
+}
+
+.time-format-preview {
+    padding: 10px 14px;
+    background: #f6ffed;
+    border: 1px solid #b7eb8f;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.time-format-preview .preview-label {
+    font-size: 13px;
+    color: #52c41a;
+    font-weight: 500;
+}
+
+.time-format-preview .preview-value {
+    font-family: 'Consolas', monospace;
+    font-size: 14px;
+    color: #389e0d;
+    background: rgba(255,255,255,0.6);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
 .config-actions {
     margin-top: 30px;
     display: flex;

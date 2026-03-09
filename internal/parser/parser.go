@@ -41,7 +41,8 @@ func NewLogParser(cfg config.ParserConfig) *LogParser {
 func (p *LogParser) init() {
 	switch p.config.Format {
 	case "nginx":
-		p.regex = regexp.MustCompile(`^(?P<client_ip>\S+)\s+\S+\s+\S+\s+\[(?P<timestamp>[^\]]+)\]\s+"(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<protocol>[^"]+)"\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)\s+"(?P<referer>[^"]*)"\s+"(?P<user_agent>[^"]*)"`)
+		// 支持简化格式（无referer/user_agent）和完整格式
+		p.regex = regexp.MustCompile(`^(?P<client_ip>\S+)\s+\S+\s+\S+\s+\[(?P<timestamp>[^\]]+)\]\s+"(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<protocol>[^"]+)"\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)(?:\s+"(?P<referer>[^"]*)"\s+"(?P<user_agent>[^"]*)")?`)
 	case "apache":
 		p.regex = regexp.MustCompile(`^(?P<client_ip>\S+)\s+\S+\s+\S+\s+\[(?P<timestamp>[^\]]+)\]\s+"(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<protocol>[^"]+)"\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)`)
 	case "custom":

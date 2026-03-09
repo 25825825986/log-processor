@@ -66,16 +66,44 @@ docker-build:
 docker-run:
 	docker run -p 8080:8080 -p 9000:9000 -p 9001:9001 -p 9002:9002 -v $(PWD)/data:/app/data log-processor:latest
 
+# 性能测试 - 需要先启动服务器
+benchmark-tcp:
+	@echo "TCP 并发测试 (10万条，100并发)..."
+	cd example && python benchmark.py -protocol tcp -addr localhost:9000 -total 100000 -c 100
+
+benchmark-udp:
+	@echo "UDP 并发测试 (5万条，50并发)..."
+	cd example && python benchmark.py -protocol udp -addr localhost:9001 -total 50000 -c 50
+
+benchmark-http:
+	@echo "HTTP 并发测试 (10万条，100并发)..."
+	cd example && python benchmark.py -protocol http -addr localhost:9002 -total 100000 -c 100
+
+benchmark-http-batch:
+	@echo "HTTP 批量测试 (10万条，50并发，每批100条)..."
+	cd example && python benchmark.py -protocol http -addr localhost:9002 -total 100000 -c 50 -batch 100
+
+benchmark-all: benchmark-tcp benchmark-udp benchmark-http
+
+# 编译基准测试工具
+build-benchmark:
+	@echo "Building benchmark tool..."
+	cd example && go build -o benchmark.exe benchmark.go
+
 # 帮助
 help:
 	@echo "Available targets:"
-	@echo "  build        - Build the binary"
-	@echo "  run          - Run the server"
-	@echo "  run-config   - Run with config file"
-	@echo "  test         - Run tests"
-	@echo "  clean        - Clean build artifacts"
-	@echo "  deps         - Download dependencies"
-	@echo "  fmt          - Format code"
-	@echo "  build-all    - Build for all platforms"
-	@echo "  docker-build - Build Docker image"
-	@echo "  docker-run   - Run Docker container"
+	@echo "  build          - Build the binary"
+	@echo "  run            - Run the server"
+	@echo "  run-config     - Run with config file"
+	@echo "  test           - Run tests"
+	@echo "  clean          - Clean build artifacts"
+	@echo "  deps           - Download dependencies"
+	@echo "  fmt            - Format code"
+	@echo "  build-all      - Build for all platforms"
+	@echo "  docker-build   - Build Docker image"
+	@echo "  docker-run     - Run Docker container"
+	@echo "  benchmark-tcp  - TCP benchmark test"
+	@echo "  benchmark-udp  - UDP benchmark test"
+	@echo "  benchmark-http - HTTP benchmark test"
+	@echo "  benchmark-all  - All benchmark tests"

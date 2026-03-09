@@ -43,14 +43,26 @@ func NewSQLiteStorage(cfg config.StorageConfig) (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite3", cfg.DBPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	// 高性能 SQLite 配置
+	db, err := sql.Open("sqlite3", cfg.DBPath+"?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-64000&_temp_store=memory&_mmap_size=268435456")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// 执行额外的 PRAGMA 优化
+	if _, err := db.Exec(`
+		PRAGMA journal_mode = WAL;
+		PRAGMA synchronous = NORMAL;
+		PRAGMA cache_size = -64000;
+		PRAGMA temp_store = memory;
+		PRAGMA mmap_size = 268435456;
+	`); err != nil {
+		log.Printf("[WARN] Failed to set PRAGMA: %v", err)
+	}
+
 	// 设置连接池
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
+	db.SetMaxOpenConns(5)  // SQLite 不需要太多连接
+	db.SetMaxIdleConns(2)
 
 	s := &SQLiteStorage{
 		db:     db,
@@ -107,9 +119,7 @@ func (s *SQLiteStorage) SaveBatch(entries []*models.LogEntry) error {
 		return nil
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	// 注意：SQLite 使用 WAL 模式支持并发读，不需要全局锁
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -155,9 +165,6 @@ func (s *SQLiteStorage) SaveBatch(entries []*models.LogEntry) error {
 
 // Query 查询日志
 func (s *SQLiteStorage) Query(filter models.FilterCondition, limit, offset int) ([]*models.LogEntry, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	where, args := s.buildWhereClause(filter)
 
 	query := fmt.Sprintf(`SELECT id, timestamp, source, level, method, path, status_code, 
@@ -178,9 +185,6 @@ func (s *SQLiteStorage) Query(filter models.FilterCondition, limit, offset int) 
 
 // Count 统计数量
 func (s *SQLiteStorage) Count(filter models.FilterCondition) (int64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	where, args := s.buildWhereClause(filter)
 
 	query := fmt.Sprintf("SELECT COUNT(*) FROM logs %s", where)
@@ -192,9 +196,6 @@ func (s *SQLiteStorage) Count(filter models.FilterCondition) (int64, error) {
 
 // Statistics 统计分析
 func (s *SQLiteStorage) Statistics(filter models.FilterCondition) (*models.Statistics, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	stats := &models.Statistics{
 		StatusCodeDist: make(map[int]int64),
 		MethodDist:     make(map[string]int64),
@@ -404,9 +405,6 @@ func (s *SQLiteStorage) cleanup() {
 
 // Delete 删除单条日志
 func (s *SQLiteStorage) Delete(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	result, err := s.db.Exec("DELETE FROM logs WHERE id = ?", id)
 	if err != nil {
 		return err
@@ -426,9 +424,6 @@ func (s *SQLiteStorage) Delete(id string) error {
 
 // Clear 清空所有日志
 func (s *SQLiteStorage) Clear() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	_, err := s.db.Exec("DELETE FROM logs")
 	if err != nil {
 		return err

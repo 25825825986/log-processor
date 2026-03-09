@@ -152,8 +152,15 @@
                         <input type="text" id="parser-delimiter" value=" " placeholder="例如: 空格、逗号、制表符">
                     </div>
                     <div class="form-group">
-                        <label>时间格式</label>
-                        <input type="text" id="parser-time-format" value="02/Jan/2006:15:04:05 -0700" placeholder="Go时间格式">
+                        <label>时间格式 <span class="hint">(选择日志中的时间样式)</span></label>
+                        <div class="time-format-cards" id="time-format-cards">
+                            <!-- 卡片式选择，由 JS 生成 -->
+                        </div>
+                        <input type="hidden" id="parser-time-format" value="02/Jan/2006:15:04:05 -0700">
+                        <div class="time-format-preview" id="time-format-preview">
+                            <span class="preview-label">预览效果:</span>
+                            <code class="preview-value" id="preview-value">04/Mar/2024:10:30:00 +0800</code>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>字段映射 (JSON格式)</label>

@@ -6,6 +6,7 @@ import (
 	"log"
 	"log-processor/internal/config"
 	"log-processor/internal/models"
+	"math/rand"
 	"regexp"
 	"strings"
 	"sync"
@@ -167,6 +168,11 @@ func (p *Processor) Submit(line string) bool {
 	case p.inputChan <- line:
 		return true
 	default:
+		// 队列满，记录警告日志（每100条丢弃记录一次，避免日志风暴）
+		if rand.Intn(100) == 0 {
+			log.Printf("[WARN] Processor input queue full (%d/%d), log dropped", 
+				len(p.inputChan), cap(p.inputChan))
+		}
 		return false
 	}
 }

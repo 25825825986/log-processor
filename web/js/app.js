@@ -5,14 +5,160 @@ let currentTotal = 0;
 let currentFilter = {};
 let currentTab = 'dashboard';
 
+// 时间格式预设配置 (人类可读的名称和示例)
+const TIME_FORMAT_PRESETS = [
+    {
+        id: 'nginx',
+        name: 'Nginx / Apache',
+        format: '02/Jan/2006:15:04:05 -0700',
+        example: '04/Mar/2024:10:30:00 +0800',
+        desc: '常见 Web 服务器日志格式'
+    },
+    {
+        id: 'iso',
+        name: 'ISO 8601 标准',
+        format: '2006-01-02T15:04:05Z07:00',
+        example: '2024-03-04T10:30:00+08:00',
+        desc: '国际通用标准格式'
+    },
+    {
+        id: 'common',
+        name: '标准日期时间',
+        format: '2006-01-02 15:04:05',
+        example: '2024-03-04 10:30:00',
+        desc: '最常见的中文格式'
+    },
+    {
+        id: 'syslog',
+        name: 'Syslog',
+        format: 'Jan 02 15:04:05',
+        example: 'Mar 04 10:30:00',
+        desc: '系统日志格式'
+    },
+    {
+        id: 'slash',
+        name: '斜杠分隔',
+        format: '2006/01/02 15:04:05',
+        example: '2024/03/04 10:30:00',
+        desc: '使用 / 分隔日期'
+    },
+    {
+        id: 'us',
+        name: '美式日期',
+        format: '01/02/2006 15:04:05',
+        example: '03/04/2024 10:30:00',
+        desc: '月/日/年 格式'
+    }
+];
+
+// 日志格式对应的时间格式
+const FORMAT_TIME_MAPPING = {
+    'nginx': '02/Jan/2006:15:04:05 -0700',
+    'apache': '02/Jan/2006:15:04:05 -0700',
+    'json': '2006-01-02T15:04:05Z07:00',
+    'csv': '2006-01-02 15:04:05',
+    'custom': ''
+};
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     initConfigTabs();
     initUploadZone();
+    initFormatListeners();
     loadDashboard();
     loadConfig();
 });
+
+// 初始化格式监听器
+function initFormatListeners() {
+    // 日志格式变化时自动设置对应的时间格式
+    const formatSelect = document.getElementById('parser-format');
+    if (formatSelect) {
+        formatSelect.addEventListener('change', onLogFormatChange);
+    }
+    
+    // 初始化时间格式卡片
+    initTimeFormatCards();
+}
+
+// 初始化时间格式卡片
+function initTimeFormatCards() {
+    const container = document.getElementById('time-format-cards');
+    if (!container) return;
+    
+    container.innerHTML = TIME_FORMAT_PRESETS.map(preset => `
+        <div class="time-format-card ${preset.id === 'nginx' ? 'selected' : ''}" 
+             data-format="${preset.format}"
+             onclick="selectTimeFormat('${preset.format}', this)">
+            <div class="card-name">${preset.name}</div>
+            <div class="card-example">${preset.example}</div>
+        </div>
+    `).join('');
+}
+
+// 选择时间格式
+function selectTimeFormat(format, cardElement) {
+    // 更新隐藏输入框
+    const input = document.getElementById('parser-time-format');
+    if (input) {
+        input.value = format;
+    }
+    
+    // 更新卡片样式
+    document.querySelectorAll('.time-format-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    if (cardElement) {
+        cardElement.classList.add('selected');
+    }
+    
+    // 更新预览
+    updateTimeFormatPreview(format);
+}
+
+// 日志格式变化处理
+function onLogFormatChange() {
+    const format = document.getElementById('parser-format').value;
+    const suggestedTimeFormat = FORMAT_TIME_MAPPING[format];
+    
+    if (suggestedTimeFormat) {
+        // 查找对应的卡片
+        const cards = document.querySelectorAll('.time-format-card');
+        cards.forEach(card => {
+            if (card.dataset.format === suggestedTimeFormat) {
+                selectTimeFormat(suggestedTimeFormat, card);
+            }
+        });
+    }
+}
+
+// 更新时间格式预览
+function updateTimeFormatPreview(format) {
+    const previewValue = document.getElementById('preview-value');
+    if (!previewValue) return;
+    
+    // 查找预设的示例
+    const preset = TIME_FORMAT_PRESETS.find(p => p.format === format);
+    if (preset) {
+        previewValue.textContent = preset.example;
+    } else {
+        // 动态生成示例
+        const now = new Date();
+        const example = format
+            .replace('2006', now.getFullYear())
+            .replace('01', String(now.getMonth() + 1).padStart(2, '0'))
+            .replace('02', String(now.getDate()).padStart(2, '0'))
+            .replace('15', String(now.getHours()).padStart(2, '0'))
+            .replace('04', String(now.getMinutes()).padStart(2, '0'))
+            .replace('05', String(now.getSeconds()).padStart(2, '0'))
+            .replace('Jan', ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][now.getMonth()])
+            .replace('-0700', '+0800')
+            .replace('Z07:00', '+08:00')
+            .replace('.000', '.123');
+        previewValue.textContent = example;
+    }
+}
 
 // 标签页切换
 function initTabs() {
@@ -551,7 +697,33 @@ async function loadConfig() {
         // 填充表单
         document.getElementById('parser-format').value = config.parser?.format || 'nginx';
         document.getElementById('parser-delimiter').value = config.parser?.delimiter || ' ';
-        document.getElementById('parser-time-format').value = config.parser?.time_format || '';
+        
+        // 处理时间格式
+        const timeFormat = config.parser?.time_format || '02/Jan/2006:15:04:05 -0700';
+        const timeInput = document.getElementById('parser-time-format');
+        if (timeInput) {
+            timeInput.value = timeFormat;
+        }
+        
+        // 选中对应的卡片
+        const cards = document.querySelectorAll('.time-format-card');
+        let matched = false;
+        cards.forEach(card => {
+            card.classList.remove('selected');
+            if (card.dataset.format === timeFormat) {
+                card.classList.add('selected');
+                matched = true;
+            }
+        });
+        
+        // 如果没有匹配的预设，默认选中第一个
+        if (!matched && cards.length > 0) {
+            cards[0].classList.add('selected');
+        }
+        
+        // 更新预览
+        updateTimeFormatPreview(timeFormat);
+        
         document.getElementById('parser-mapping').value = JSON.stringify(config.parser?.field_mapping || {}, null, 2);
         
         document.getElementById('processor-workers').value = config.processor?.worker_count || 10;
