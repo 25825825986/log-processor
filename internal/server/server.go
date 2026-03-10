@@ -249,8 +249,9 @@ func (s *Server) importLogs(c *gin.Context) {
 	lines := make([]string, 0)
 	
 	// 先读取所有行
-	err = importer.ImportFile(tempPath, func(line string) {
+	_, err = importer.ImportFile(tempPath, func(line string) bool {
 		lines = append(lines, line)
+		return true
 	})
 
 	if err != nil {
@@ -270,10 +271,9 @@ func (s *Server) importLogs(c *gin.Context) {
 	}
 
 	log.Printf("[IMPORT] 读取到 %d 行数据", len(lines))
-	log.Printf("[IMPORT] 第一行样例: %s", lines[0][:min(100, len(lines[0]))])
 
-	// 检测文件格式是否与配置匹配
-	detectedFormat := detectLogFormat(lines[0])
+	// 检测文件格式（跳过注释行和空行）
+	detectedFormat := detectFileFormat(lines)
 	log.Printf("[IMPORT] 检测到文件格式: %s, 当前配置: %s", detectedFormat, currentFormat)
 
 	// 检查格式是否匹配
@@ -290,9 +290,14 @@ func (s *Server) importLogs(c *gin.Context) {
 		return
 	}
 
-	// 再提交到处理器
+	// 再提交到处理器（跳过注释行和空行）
 	successCount := 0
 	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// 跳过空行和注释行
+		if len(trimmed) == 0 || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
 		if s.processor.Submit(line) {
 			successCount++
 		}
@@ -310,7 +315,20 @@ func (s *Server) importLogs(c *gin.Context) {
 	})
 }
 
-// detectLogFormat 检测日志格式
+// detectFileFormat 检测文件格式（跳过注释行和空行）
+func detectFileFormat(lines []string) string {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// 跳过空行和注释行
+		if len(trimmed) == 0 || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		return detectLogFormat(trimmed)
+	}
+	return "unknown"
+}
+
+// detectLogFormat 检测单行日志格式
 func detectLogFormat(line string) string {
 	trimmed := strings.TrimSpace(line)
 	if len(trimmed) == 0 {

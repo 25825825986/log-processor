@@ -77,11 +77,13 @@ func main() {
 	recvManager := receiver.NewManager(receiverCfg)
 
 	// 启动接收器
-	err = recvManager.Start(func(line string) {
+	err = recvManager.Start(func(line string) bool {
 		// 提交到处理器
 		if !proc.Submit(line) {
 			log.Printf("处理器队列已满，丢弃日志: %s", line[:min(50, len(line))])
+			return false
 		}
+		return true
 	})
 	if err != nil {
 		log.Fatalf("启动接收器失败: %v", err)

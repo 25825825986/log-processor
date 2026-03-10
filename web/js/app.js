@@ -5,6 +5,34 @@ let currentTotal = 0;
 let currentFilter = {};
 let currentTab = 'dashboard';
 
+// 设置保留时间
+function setRetention(hours) {
+    document.getElementById('storage-retention').value = hours;
+    updateRetentionButtons(hours);
+}
+
+// 更新保留时间按钮状态
+function updateRetentionButtons(currentHours) {
+    document.querySelectorAll('.retention-btn').forEach(btn => {
+        const btnHours = parseInt(btn.dataset.hours);
+        if (btnHours === currentHours) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+}
+
+// 监听保留时间输入框变化
+document.addEventListener('DOMContentLoaded', () => {
+    const retentionInput = document.getElementById('storage-retention');
+    if (retentionInput) {
+        retentionInput.addEventListener('change', function() {
+            updateRetentionButtons(parseInt(this.value));
+        });
+    }
+});
+
 // 时间格式预设配置 (人类可读的名称和示例)
 const TIME_FORMAT_PRESETS = [
     {
@@ -60,6 +88,97 @@ const FORMAT_TIME_MAPPING = {
     'custom': ''
 };
 
+// 数字输入框验证配置
+const NUMBER_INPUT_LIMITS = {
+    'processor-workers': { min: 1, max: 100 },
+    'processor-batch-size': { min: 10, max: 10000 },
+    'processor-timeout': { min: 100, max: 60000 },
+    'receiver-tcp-port': { min: 1, max: 65535 },
+    'receiver-udp-port': { min: 1, max: 65535 },
+    'receiver-http-port': { min: 1, max: 65535 },
+    'receiver-http-rate': { min: 0, max: 100000 },
+    'receiver-buffer': { min: 1024, max: 65536 },
+    'storage-retention': { min: 1, max: 8760 } // 最多1年(8760小时)
+};
+
+// 初始化数字输入框验证
+function initNumberValidation() {
+    Object.keys(NUMBER_INPUT_LIMITS).forEach(id => {
+        const input = document.getElementById(id);
+        if (input) {
+            const limits = NUMBER_INPUT_LIMITS[id];
+            
+            // 输入时验证
+            input.addEventListener('input', function() {
+                let value = parseInt(this.value);
+                
+                // 清除非数字字符
+                if (isNaN(value)) {
+                    this.value = limits.min;
+                    return;
+                }
+                
+                // 限制范围
+                if (value < limits.min) {
+                    this.value = limits.min;
+                    showInputHint(this, `最小值为 ${limits.min}`);
+                } else if (value > limits.max) {
+                    this.value = limits.max;
+                    showInputHint(this, `最大值为 ${limits.max}`);
+                }
+            });
+            
+            // 失去焦点时验证
+            input.addEventListener('blur', function() {
+                let value = parseInt(this.value);
+                if (isNaN(value) || value < limits.min) {
+                    this.value = limits.min;
+                } else if (value > limits.max) {
+                    this.value = limits.max;
+                }
+            });
+        }
+    });
+}
+
+// 显示输入提示
+function showInputHint(input, message) {
+    // 移除旧的提示
+    const oldHint = input.parentElement.querySelector('.input-hint');
+    if (oldHint) oldHint.remove();
+    
+    // 创建新提示
+    const hint = document.createElement('span');
+    hint.className = 'input-hint';
+    hint.textContent = message;
+    hint.style.cssText = 'color: #f5222d; font-size: 12px; margin-left: 8px;';
+    
+    input.parentElement.appendChild(hint);
+    
+    // 3秒后移除
+    setTimeout(() => hint.remove(), 3000);
+}
+
+// 验证所有数字输入
+function validateNumberInputs() {
+    let isValid = true;
+    Object.keys(NUMBER_INPUT_LIMITS).forEach(id => {
+        const input = document.getElementById(id);
+        if (input) {
+            const limits = NUMBER_INPUT_LIMITS[id];
+            let value = parseInt(input.value);
+            
+            if (isNaN(value) || value < limits.min || value > limits.max) {
+                input.style.borderColor = '#f5222d';
+                isValid = false;
+            } else {
+                input.style.borderColor = '';
+            }
+        }
+    });
+    return isValid;
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[App] Initializing...');
@@ -68,6 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initConfigTabs();
     initUploadZone();
     initFormatListeners();
+    initNumberValidation(); // 初始化数字验证
     
     // 延迟加载仪表板数据，确保DOM完全渲染
     setTimeout(() => {
@@ -196,14 +316,35 @@ function initTabs() {
 function initConfigTabs() {
     document.querySelectorAll('.config-tab').forEach(tab => {
         tab.addEventListener('click', () => {
-            document.querySelectorAll('.config-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.config-panel').forEach(p => p.classList.remove('active'));
+            // 移除所有活动状态
+            document.querySelectorAll('.config-tab').forEach(t => {
+                t.classList.remove('active');
+                t.style.background = '';
+                t.style.color = 'var(--text-secondary)';
+            });
+            document.querySelectorAll('.config-panel').forEach(p => {
+                p.style.display = 'none';
+            });
             
+            // 激活当前标签
             tab.classList.add('active');
+            tab.style.background = 'var(--primary-bg)';
+            tab.style.color = 'var(--primary)';
+            
             const configId = 'config-' + tab.dataset.config;
-            document.getElementById(configId).classList.add('active');
+            const panel = document.getElementById(configId);
+            if (panel) {
+                panel.style.display = 'block';
+            }
         });
     });
+    
+    // 初始化第一个为活动状态
+    const firstTab = document.querySelector('.config-tab.active');
+    if (firstTab) {
+        firstTab.style.background = 'var(--primary-bg)';
+        firstTab.style.color = 'var(--primary)';
+    }
 }
 
 // 初始化上传区域
@@ -211,20 +352,25 @@ function initUploadZone() {
     const zone = document.getElementById('upload-zone');
     const input = document.getElementById('file-input');
     
+    if (!zone || !input) return;
+    
     zone.addEventListener('click', () => input.click());
     
     zone.addEventListener('dragover', (e) => {
         e.preventDefault();
-        zone.classList.add('dragover');
+        zone.style.borderColor = 'var(--primary)';
+        zone.style.background = 'var(--primary-bg)';
     });
     
     zone.addEventListener('dragleave', () => {
-        zone.classList.remove('dragover');
+        zone.style.borderColor = '';
+        zone.style.background = '';
     });
     
     zone.addEventListener('drop', (e) => {
         e.preventDefault();
-        zone.classList.remove('dragover');
+        zone.style.borderColor = '';
+        zone.style.background = '';
         handleFiles(e.dataTransfer.files);
     });
     
@@ -384,34 +530,53 @@ function switchTab(tabName) {
     }
 }
 
-// 渲染状态码图表
+// 渲染状态码图表 - 卡片式设计
 function renderStatusChart(data) {
     const container = document.getElementById('status-chart');
+    const totalEl = document.getElementById('status-total');
+    
     if (!data || Object.keys(data).length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                <i class="fas fa-chart-pie"></i>
-                <p>暂无状态码数据</p>
+                <i class="fas fa-shield-alt"></i>
+                <h4>暂无数据</h4>
+                <p>导入或接收日志后将显示状态码分布</p>
             </div>
         `;
+        if (totalEl) totalEl.textContent = '共 0 条';
         return;
     }
     
+    // 计算总数和百分比
+    const total = Object.values(data).reduce((a, b) => a + b, 0);
+    if (totalEl) totalEl.textContent = `共 ${total.toLocaleString()} 条`;
+    
     // 按状态码排序
     const sortedData = Object.entries(data).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
-    const max = Math.max(...Object.values(data));
     
-    let html = '<div class="chart-bars">';
+    // 状态码分类和标签
+    const getStatusInfo = (code) => {
+        const c = parseInt(code);
+        if (c >= 200 && c < 300) return { class: 'success', label: '成功' };
+        if (c >= 300 && c < 400) return { class: 'redirect', label: '重定向' };
+        if (c >= 400 && c < 500) return { class: 'client-error', label: '客户端错误' };
+        if (c >= 500) return { class: 'server-error', label: '服务器错误' };
+        return { class: 'success', label: '其他' };
+    };
+    
+    let html = '<div class="status-cards">';
     for (const [code, count] of sortedData) {
-        const percentage = max > 0 ? (count / max) * 100 : 0;
-        const barClass = parseInt(code) >= 500 ? 'error' : parseInt(code) >= 400 ? 'warning' : 'success';
+        const percent = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+        const info = getStatusInfo(code);
+        
         html += `
-            <div class="chart-bar-row">
-                <span class="chart-label">${code}</span>
-                <div class="chart-bar-wrapper">
-                    <div class="chart-bar ${barClass}" style="width: ${percentage}%"></div>
+            <div class="status-card ${info.class}">
+                <div class="status-code-badge">${code}</div>
+                <div class="status-info">
+                    <div class="status-label">${info.label}</div>
+                    <div class="status-count">${count.toLocaleString()} 条</div>
                 </div>
-                <span class="chart-value">${count.toLocaleString()}</span>
+                <div class="status-percent">${percent}%</div>
             </div>
         `;
     }
@@ -419,35 +584,102 @@ function renderStatusChart(data) {
     container.innerHTML = html;
 }
 
-// 渲染方法图表
+// 渲染方法图表 - 环形图设计
 function renderMethodChart(data) {
     const container = document.getElementById('method-chart');
+    const totalEl = document.getElementById('method-total');
+    
     if (!data || Object.keys(data).length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                <i class="fas fa-chart-bar"></i>
-                <p>暂无请求方法数据</p>
+                <i class="fas fa-code-branch"></i>
+                <h4>暂无数据</h4>
+                <p>导入或接收日志后将显示请求方法分布</p>
             </div>
         `;
+        if (totalEl) totalEl.textContent = '共 0 条';
         return;
     }
     
-    const max = Math.max(...Object.values(data));
-    let html = '<div class="chart-bars">';
+    // 计算总数
+    const total = Object.values(data).reduce((a, b) => a + b, 0);
+    if (totalEl) totalEl.textContent = `共 ${total.toLocaleString()} 条`;
     
-    for (const [method, count] of Object.entries(data)) {
-        const percentage = max > 0 ? (count / max) * 100 : 0;
+    // 排序：按数量从大到小
+    const sortedData = Object.entries(data).sort((a, b) => b[1] - a[1]);
+    
+    // 颜色方案
+    const colors = [
+        '#4472C4', '#52C41A', '#FAAD14', '#F5222D', 
+        '#722ED1', '#13C2C2', '#EB2F96', '#FA541C'
+    ];
+    
+    // 计算环形图的圆弧
+    let currentAngle = 0;
+    const arcs = sortedData.map(([method, count], index) => {
+        const percentage = total > 0 ? count / total : 0;
+        const angle = percentage * 360;
+        const startAngle = currentAngle;
+        const endAngle = currentAngle + angle;
+        currentAngle += angle;
+        
+        // 计算SVG路径
+        const startRad = (startAngle * Math.PI) / 180;
+        const endRad = (endAngle * Math.PI) / 180;
+        const x1 = 90 + 70 * Math.cos(startRad);
+        const y1 = 90 + 70 * Math.sin(startRad);
+        const x2 = 90 + 70 * Math.cos(endRad);
+        const y2 = 90 + 70 * Math.sin(endRad);
+        const largeArc = angle > 180 ? 1 : 0;
+        
+        return {
+            method,
+            count,
+            percentage: (percentage * 100).toFixed(1),
+            color: colors[index % colors.length],
+            path: `M 90 90 L ${x1} ${y1} A 70 70 0 ${largeArc} 1 ${x2} ${y2} Z`,
+            barWidth: Math.max(percentage * 100, 5)
+        };
+    });
+    
+    // 生成HTML
+    let html = '<div class="method-donut">';
+    
+    // 环形图 SVG
+    html += `
+        <div class="donut-chart">
+            <svg class="donut-svg" viewBox="0 0 180 180">
+                ${arcs.map((arc, i) => `
+                    <path d="${arc.path}" fill="${arc.color}" opacity="0.9">
+                        <title>${arc.method}: ${arc.count} (${arc.percentage}%)</title>
+                    </path>
+                `).join('')}
+                <circle cx="90" cy="90" r="45" fill="white"/>
+            </svg>
+            <div class="donut-center">
+                <div class="donut-value">${total.toLocaleString()}</div>
+                <div class="donut-label">总请求</div>
+            </div>
+        </div>
+    `;
+    
+    // 图例
+    html += '<div class="method-legend">';
+    arcs.forEach(arc => {
         html += `
-            <div class="chart-bar-row">
-                <span class="chart-label">${method || 'UNKNOWN'}</span>
-                <div class="chart-bar-wrapper">
-                    <div class="chart-bar" style="width: ${percentage}%"></div>
+            <div class="method-item">
+                <div class="method-color" style="background: ${arc.color}"></div>
+                <span class="method-name">${arc.method}</span>
+                <div class="method-bar-bg">
+                    <div class="method-bar-fill" style="width: ${arc.barWidth}%; background: ${arc.color}"></div>
                 </div>
-                <span class="chart-value">${count.toLocaleString()}</span>
+                <span class="method-count">${arc.count.toLocaleString()}</span>
+                <span class="method-percent">${arc.percentage}%</span>
             </div>
         `;
-    }
-    html += '</div>';
+    });
+    html += '</div></div>';
+    
     container.innerHTML = html;
 }
 
@@ -458,28 +690,108 @@ function renderTrendChart(data) {
         container.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-chart-line"></i>
-                <p>暂无时间趋势数据</p>
+                <h4>暂无数据</h4>
+                <p>导入或接收日志后将显示时间趋势</p>
             </div>
         `;
         return;
     }
     
     const max = Math.max(...data.map(d => d.count || 0));
-    let html = '<div class="trend-chart">';
+    const total = data.reduce((sum, d) => sum + (d.count || 0), 0);
     
-    // 只显示最近20个点
-    const displayData = data.slice(-20);
-    displayData.forEach(point => {
+    // 只显示最近30个点
+    const displayData = data.slice(-30);
+    
+    let html = '<div style="padding: 16px 0;">';
+    
+    // 统计信息
+    html += `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 12px 16px; background: var(--bg-secondary); border-radius: 8px;">
+            <div style="font-size: 13px; color: var(--text-secondary);">
+                <i class="fas fa-clock" style="margin-right: 6px;"></i>
+                时间范围: ${formatTime(displayData[0]?.time)} ~ ${formatTime(displayData[displayData.length - 1]?.time)}
+            </div>
+            <div style="font-size: 13px; color: var(--text-secondary);">
+                怼计: <strong style="color: var(--primary);">${total.toLocaleString()}</strong> 条
+            </div>
+        </div>
+    `;
+    
+    // 柱状图
+    html += '<div class="trend-chart" style="display: flex; align-items: flex-end; gap: 4px; height: 180px; padding: 10px 0; border-bottom: 1px solid var(--border-light);">';
+    
+    displayData.forEach((point, index) => {
         const count = point.count || 0;
         const height = max > 0 ? (count / max) * 100 : 0;
         const time = point.time || point.Time || '';
+        const displayTime = formatTime(time);
+        
+        // 根据数量设置颜色
+        let color = 'var(--primary)';
+        if (count >= max * 0.8) color = '#52c41a'; // 高峰 - 绿
+        else if (count >= max * 0.5) color = '#1890ff'; // 中等 - 蓝
+        else if (count >= max * 0.2) color = '#faad14'; // 较低 - 黄
+        else color = '#d9d9d9'; // 很低 - 灰
+        
         html += `
-            <div class="trend-bar" style="height: ${Math.max(height, 5)}%;" title="${time}: ${count}"></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 8px;">
+                <div style="width: 100%; height: ${Math.max(height, 3)}%; background: ${color}; border-radius: 3px 3px 0 0; transition: all 0.3s; cursor: pointer;" 
+                     title="${displayTime}: ${count}条"
+                     onmouseover="this.style.opacity='0.8'" 
+                     onmouseout="this.style.opacity='1'"></div>
+            </div>
         `;
     });
     
     html += '</div>';
+    
+    // 时间轴标签（显示开始、中间、结束）
+    const midIndex = Math.floor(displayData.length / 2);
+    html += `
+        <div style="display: flex; justify-content: space-between; margin-top: 8px; padding: 0 4px; font-size: 11px; color: var(--text-tertiary);">
+            <span>${formatTime(displayData[0]?.time)}</span>
+            <span>${formatTime(displayData[midIndex]?.time)}</span>
+            <span>${formatTime(displayData[displayData.length - 1]?.time)}</span>
+        </div>
+    `;
+    
+    // 图例
+    html += `
+        <div style="display: flex; justify-content: center; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-light);">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
+                <div style="width: 12px; height: 12px; background: #52c41a; border-radius: 2px;"></div>
+                <span>高峰 (≥80%)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
+                <div style="width: 12px; height: 12px; background: #1890ff; border-radius: 2px;"></div>
+                <span>正常 (50-80%)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
+                <div style="width: 12px; height: 12px; background: #faad14; border-radius: 2px;"></div>
+                <span>较低 (20-50%)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
+                <div style="width: 12px; height: 12px; background: #d9d9d9; border-radius: 2px;"></div>
+                <span>低调 (<20%)</span>
+            </div>
+        </div>
+    `;
+    
+    html += '</div>';
     container.innerHTML = html;
+}
+
+// 格式化时间显示
+function formatTime(timeStr) {
+    if (!timeStr) return '-';
+    // 处理不同格式: 2026-03-10 13:45 或 2026-03-10T13:45:00+08:00
+    const date = new Date(timeStr.replace(' ', 'T'));
+    if (isNaN(date.getTime())) return timeStr;
+    
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
 }
 
 // 查询日志
@@ -834,8 +1146,19 @@ async function loadConfig() {
         document.getElementById('receiver-buffer').value = config.receiver?.buffer_size || 8192;
         
         document.getElementById('storage-type').value = config.storage?.type || 'sqlite';
-        document.getElementById('storage-db-path').value = config.storage?.db_path || './data/logs.db';
-        document.getElementById('storage-retention').value = config.storage?.retention_hours || 168;
+        
+        // 更新存储路径显示
+        const dbPath = config.storage?.db_path || './data/logs.db';
+        document.getElementById('storage-db-path').value = dbPath;
+        const pathText = document.getElementById('storage-path-text');
+        if (pathText) {
+            pathText.textContent = dbPath;
+        }
+        
+        // 更新保留时间并同步按钮状态
+        const retention = config.storage?.retention_hours || 168;
+        document.getElementById('storage-retention').value = retention;
+        updateRetentionButtons(retention);
     } catch (error) {
         console.error('Failed to load config:', error);
     }
@@ -843,6 +1166,12 @@ async function loadConfig() {
 
 // 保存配置
 async function saveConfig() {
+    // 先验证所有数字输入
+    if (!validateNumberInputs()) {
+        alert('请检查输入，有些数值超出了允许的范围');
+        return;
+    }
+    
     const config = {
         server: {
             host: "0.0.0.0",

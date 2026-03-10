@@ -4,112 +4,161 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>日志数据处理系统</title>
-        <link rel="stylesheet" href="/static/css/style.css">
-    <!-- Font Awesome 图标库 -->
+    <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1><i class="fas fa-rocket"></i> 轻量级高并发日志数据处理系统</h1>
-            <nav>
-                <button class="nav-btn active" data-tab="dashboard"><i class="fas fa-chart-line"></i> 概览</button>
-                <button class="nav-btn" data-tab="query"><i class="fas fa-search"></i> 查询</button>
-                <button class="nav-btn" data-tab="config"><i class="fas fa-cog"></i> 配置</button>
-                <button class="nav-btn" data-tab="import"><i class="fas fa-folder-open"></i> 导入</button>
-                <button class="nav-btn" data-tab="export"><i class="fas fa-share-from-square"></i> 导出</button>
+        <!-- 头部 -->
+        <header class="header">
+            <h1 class="header-title">
+                <i class="fas fa-rocket"></i>
+                轻量级高并发日志数据处理系统
+            </h1>
+            <nav class="nav">
+                <button class="nav-btn active" data-tab="dashboard">
+                    <i class="fas fa-chart-line"></i>
+                    <span>概览</span>
+                </button>
+                <button class="nav-btn" data-tab="query">
+                    <i class="fas fa-search"></i>
+                    <span>查询</span>
+                </button>
+                <button class="nav-btn" data-tab="config">
+                    <i class="fas fa-cog"></i>
+                    <span>配置</span>
+                </button>
+                <button class="nav-btn" data-tab="import">
+                    <i class="fas fa-folder-open"></i>
+                    <span>导入</span>
+                </button>
+                <button class="nav-btn" data-tab="export">
+                    <i class="fas fa-share-from-square"></i>
+                    <span>导出</span>
+                </button>
             </nav>
         </header>
 
-        <main>
+        <main class="main">
             <!-- 概览面板 -->
             <section id="dashboard" class="tab-content active">
                 <!-- 统计卡片 -->
                 <div class="stats-grid">
                     <div class="stat-card primary">
-                        <div class="stat-icon"><i class="fas fa-database"></i></div>
+                        <i class="stat-icon fas fa-database"></i>
                         <div class="stat-content">
-                            <h3>总日志数</h3>
+                            <div class="stat-label">总日志数</div>
                             <div class="stat-value" id="total-logs">-</div>
-                            <div class="stat-trend" id="total-trend"></div>
+                            <div class="stat-meta" id="total-trend"></div>
                         </div>
                     </div>
                     <div class="stat-card error">
-                        <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                        <i class="stat-icon fas fa-exclamation-triangle"></i>
                         <div class="stat-content">
-                            <h3>错误数</h3>
+                            <div class="stat-label">错误数</div>
                             <div class="stat-value" id="error-logs">-</div>
-                            <div class="stat-rate" id="error-rate"></div>
+                            <div class="stat-meta" id="error-rate"></div>
                         </div>
                     </div>
                     <div class="stat-card info">
-                        <div class="stat-icon"><i class="fas fa-clock"></i></div>
+                        <i class="stat-icon fas fa-clock"></i>
                         <div class="stat-content">
-                            <h3>平均响应时间</h3>
+                            <div class="stat-label">平均响应时间</div>
                             <div class="stat-value" id="avg-response">-</div>
-                            <div class="stat-label">毫秒</div>
+                            <div class="stat-meta">毫秒</div>
                         </div>
                     </div>
                     <div class="stat-card success">
-                        <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+                        <i class="stat-icon fas fa-check-circle"></i>
                         <div class="stat-content">
-                            <h3>系统状态</h3>
+                            <div class="stat-label">系统状态</div>
                             <div class="stat-value" id="system-status">运行中</div>
-                            <div class="stat-label" id="last-update">刚刚更新</div>
+                            <div class="stat-meta" id="last-update">刚刚更新</div>
                         </div>
                     </div>
                 </div>
 
                 <!-- 图表区域 -->
-                <div class="charts-container">
-                    <div class="chart-box">
+                <div class="chart-grid">
+                    <!-- 状态码分布 - 卡片式设计 -->
+                    <div class="chart-card">
                         <div class="chart-header">
-                            <h3><i class="fas fa-chart-pie"></i> 状态码分布</h3>
+                            <h3 class="chart-title">
+                                <i class="fas fa-shield-alt"></i>
+                                状态码分布
+                            </h3>
+                            <span class="chart-subtitle" id="status-total">共 0 条</span>
                         </div>
                         <div id="status-chart" class="chart-body">
-                            <div class="loading">加载中...</div>
-                        </div>
-                    </div>
-                    <div class="chart-box">
-                        <div class="chart-header">
-                            <h3><i class="fas fa-chart-bar"></i> 请求方法分布</h3>
-                        </div>
-                        <div id="method-chart" class="chart-body">
-                            <div class="loading">加载中...</div>
-                        </div>
-                    </div>
-                    <div class="chart-box full-width">
-                        <div class="chart-header">
-                            <h3><i class="fas fa-chart-line"></i> 时间趋势</h3>
-                            <div class="chart-actions">
-                                <button class="btn-icon" onclick="refreshDashboard()" title="刷新"><i class="fas fa-sync-alt"></i></button>
+                            <div class="empty-state">
+                                <i class="fas fa-shield-alt"></i>
+                                <h4>暂无数据</h4>
+                                <p>导入或接收日志后将显示状态码分布</p>
                             </div>
                         </div>
+                    </div>
+                    
+                    <!-- 请求方法分布 - 环形图设计 -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3 class="chart-title">
+                                <i class="fas fa-code-branch"></i>
+                                请求方法分布
+                            </h3>
+                            <span class="chart-subtitle" id="method-total">共 0 条</span>
+                        </div>
+                        <div id="method-chart" class="chart-body">
+                            <div class="empty-state">
+                                <i class="fas fa-code-branch"></i>
+                                <h4>暂无数据</h4>
+                                <p>导入或接收日志后将显示请求方法分布</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-card full-width">
+                        <div class="chart-header">
+                            <h3 class="chart-title">
+                                <i class="fas fa-chart-line"></i>
+                                时间趋势
+                            </h3>
+                            <button class="btn-icon" onclick="refreshDashboard()" title="刷新">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
                         <div id="trend-chart" class="chart-body">
-                            <div class="loading">加载中...</div>
+                            <div class="empty-state">
+                                <i class="fas fa-chart-line"></i>
+                                <h4>暂无数据</h4>
+                                <p>导入或接收日志后将显示时间趋势</p>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- 快捷操作 -->
-                <div class="quick-actions">
-                    <h3><i class="fas fa-bolt"></i> 快捷操作</h3>
-                    <div class="action-buttons">
-                        <button class="action-btn" onclick="switchTab('query')">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3 class="panel-title">
+                            <i class="fas fa-bolt"></i>
+                            快捷操作
+                        </h3>
+                    </div>
+                    <div class="action-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px;">
+                        <button class="btn btn-secondary" onclick="switchTab('query')">
                             <i class="fas fa-search"></i>
-                            <span>查询日志</span>
+                            查询日志
                         </button>
-                        <button class="action-btn" onclick="switchTab('import')">
+                        <button class="btn btn-secondary" onclick="switchTab('import')">
                             <i class="fas fa-upload"></i>
-                            <span>导入日志</span>
+                            导入日志
                         </button>
-                        <button class="action-btn" onclick="switchTab('export')">
+                        <button class="btn btn-secondary" onclick="switchTab('export')">
                             <i class="fas fa-download"></i>
-                            <span>导出数据</span>
+                            导出数据
                         </button>
-                        <button class="action-btn" onclick="switchTab('config')">
+                        <button class="btn btn-secondary" onclick="switchTab('config')">
                             <i class="fas fa-cog"></i>
-                            <span>系统配置</span>
+                            系统配置
                         </button>
                     </div>
                 </div>
@@ -117,20 +166,26 @@
 
             <!-- 查询面板 -->
             <section id="query" class="tab-content">
-                <div class="filter-panel">
-                    <h3>筛选条件</h3>
-                    <div class="filter-grid">
-                        <div class="filter-item">
-                            <label>开始时间</label>
-                            <input type="datetime-local" id="filter-start-time">
+                <!-- 筛选条件 -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3 class="panel-title">
+                            <i class="fas fa-filter"></i>
+                            筛选条件
+                        </h3>
+                    </div>
+                    <div class="filter-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label class="form-label">开始时间</label>
+                            <input type="datetime-local" id="filter-start-time" class="form-input">
                         </div>
-                        <div class="filter-item">
-                            <label>结束时间</label>
-                            <input type="datetime-local" id="filter-end-time">
+                        <div class="form-group">
+                            <label class="form-label">结束时间</label>
+                            <input type="datetime-local" id="filter-end-time" class="form-input">
                         </div>
-                        <div class="filter-item">
-                            <label>请求方法</label>
-                            <select id="filter-method" multiple>
+                        <div class="form-group">
+                            <label class="form-label">请求方法</label>
+                            <select id="filter-method" class="form-select" multiple size="4">
                                 <option value="GET">GET</option>
                                 <option value="POST">POST</option>
                                 <option value="PUT">PUT</option>
@@ -138,32 +193,42 @@
                                 <option value="PATCH">PATCH</option>
                             </select>
                         </div>
-                        <div class="filter-item">
-                            <label>状态码</label>
-                            <input type="text" id="filter-status" placeholder="例如: 200,404,500">
+                        <div class="form-group">
+                            <label class="form-label">状态码</label>
+                            <input type="text" id="filter-status" class="form-input" placeholder="例如: 200,404,500">
                         </div>
-                        <div class="filter-item">
-                            <label>关键词</label>
-                            <input type="text" id="filter-keyword" placeholder="搜索路径、IP等">
+                        <div class="form-group">
+                            <label class="form-label">关键词</label>
+                            <input type="text" id="filter-keyword" class="form-input" placeholder="搜索路径、IP等">
                         </div>
                     </div>
-                    <div class="filter-actions">
-                        <button class="btn-primary" onclick="queryLogs()"><i class="fas fa-search"></i> 查询</button>
-                        <button class="btn-secondary" onclick="resetFilters()">重置</button>
-                        <button class="btn-danger" onclick="clearAllLogs()" style="margin-left: auto;"><i class="fas fa-trash"></i> 清空全部</button>
+                    <div class="filter-actions" style="display: flex; gap: 12px;">
+                        <button class="btn btn-primary" onclick="queryLogs()">
+                            <i class="fas fa-search"></i>
+                            查询
+                        </button>
+                        <button class="btn btn-secondary" onclick="resetFilters()">
+                            <i class="fas fa-undo"></i>
+                            重置
+                        </button>
+                        <button class="btn btn-danger" onclick="clearAllLogs()" style="margin-left: auto;">
+                            <i class="fas fa-trash"></i>
+                            清空全部
+                        </button>
                     </div>
                 </div>
-                <div class="results-panel">
-                    <div class="results-header">
-                        <span id="results-count">共 0 条记录</span>
-                        <div class="pagination">
-                            <button onclick="prevPage()">上一页</button>
-                            <span id="page-info">第 1 页</span>
-                            <button onclick="nextPage()">下一页</button>
-                        </div>
+
+                <!-- 查询结果 -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3 class="panel-title">
+                            <i class="fas fa-list"></i>
+                            查询结果
+                        </h3>
+                        <span id="results-count" style="color: var(--text-tertiary);">共 0 条记录</span>
                     </div>
-                    <div class="table-container">
-                        <table id="logs-table">
+                    <div class="table-container" style="margin-bottom: 20px;">
+                        <table class="table" id="logs-table">
                             <thead>
                                 <tr>
                                     <th>时间</th>
@@ -176,27 +241,41 @@
                                 </tr>
                             </thead>
                             <tbody>
+                                <!-- 动态填充 -->
                             </tbody>
                         </table>
+                    </div>
+                    <div class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 16px;">
+                        <button class="btn btn-secondary" onclick="prevPage()">上一页</button>
+                        <span id="page-info" style="color: var(--text-secondary);">第 1 页</span>
+                        <button class="btn btn-secondary" onclick="nextPage()">下一页</button>
                     </div>
                 </div>
             </section>
 
             <!-- 配置面板 -->
             <section id="config" class="tab-content">
-                <div class="config-tabs">
-                    <button class="config-tab active" data-config="parser">解析配置</button>
-                    <button class="config-tab" data-config="processor">处理配置</button>
-                    <button class="config-tab" data-config="receiver">接收器配置</button>
-                    <button class="config-tab" data-config="storage">存储配置</button>
+                <!-- 配置标签页 -->
+                <div class="config-tabs" style="display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 2px solid var(--border-light); padding-bottom: 12px;">
+                    <button class="config-tab active" data-config="parser" style="padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 15px; color: var(--text-secondary); border-radius: 6px; transition: all 0.2s;">
+                        <i class="fas fa-code"></i> 解析配置
+                    </button>
+                    <button class="config-tab" data-config="processor" style="padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 15px; color: var(--text-secondary); border-radius: 6px; transition: all 0.2s;">
+                        <i class="fas fa-cogs"></i> 处理配置
+                    </button>
+                    <button class="config-tab" data-config="receiver" style="padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 15px; color: var(--text-secondary); border-radius: 6px; transition: all 0.2s;">
+                        <i class="fas fa-network-wired"></i> 接收器配置
+                    </button>
+                    <button class="config-tab" data-config="storage" style="padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 15px; color: var(--text-secondary); border-radius: 6px; transition: all 0.2s;">
+                        <i class="fas fa-database"></i> 存储配置
+                    </button>
                 </div>
 
                 <!-- 解析配置 -->
                 <div id="config-parser" class="config-panel active">
-                    <h3>日志解析配置</h3>
                     <div class="form-group">
-                        <label>日志格式</label>
-                        <select id="parser-format">
+                        <label class="form-label">日志格式</label>
+                        <select id="parser-format" class="form-select">
                             <option value="nginx">Nginx</option>
                             <option value="apache">Apache</option>
                             <option value="json">JSON</option>
@@ -205,181 +284,260 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>字段分隔符</label>
-                        <input type="text" id="parser-delimiter" value=" " placeholder="例如: 空格、逗号、制表符">
+                        <label class="form-label">字段分隔符</label>
+                        <input type="text" id="parser-delimiter" class="form-input" value=" " placeholder="例如: 空格、逗号、制表符">
                     </div>
                     <div class="form-group">
-                        <label>时间格式 <span class="hint">(选择日志中的时间样式)</span></label>
-                        <div class="time-format-cards" id="time-format-cards">
-                            <!-- 卡片式选择，由 JS 生成 -->
+                        <label class="form-label">时间格式 <span class="hint">(选择日志中的时间样式)</span></label>
+                        <div class="time-format-cards" id="time-format-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                            <!-- JS生成 -->
                         </div>
                         <input type="hidden" id="parser-time-format" value="02/Jan/2006:15:04:05 -0700">
-                        <div class="time-format-preview" id="time-format-preview">
-                            <span class="preview-label">预览效果:</span>
-                            <code class="preview-value" id="preview-value">04/Mar/2024:10:30:00 +0800</code>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <div>
+                                <strong>预览效果:</strong> <code id="preview-value">04/Mar/2024:10:30:00 +0800</code>
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>字段映射 (JSON格式)</label>
-                        <textarea id="parser-mapping" rows="8">{
+                        <label class="form-label">字段映射 (JSON格式)</label>
+                        <textarea id="parser-mapping" class="form-textarea" rows="8">{
   "0": "client_ip",
   "3": "timestamp",
   "4": "method",
-  "5": "path",
-  "6": "protocol",
-  "8": "status_code",
-  "9": "response_size"
+  "5": "path"
 }</textarea>
                     </div>
                 </div>
 
                 <!-- 处理配置 -->
-                <div id="config-processor" class="config-panel">
-                    <h3>处理器配置</h3>
-                    <div class="form-group">
-                        <label>工作协程数</label>
-                        <input type="number" id="processor-workers" value="10" min="1" max="100">
+                <div id="config-processor" class="config-panel" style="display: none;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+                        <div class="form-group">
+                            <label class="form-label">工作协程数</label>
+                            <input type="number" id="processor-workers" class="form-input" value="10" min="1" max="100">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">批处理大小</label>
+                            <input type="number" id="processor-batch-size" class="form-input" value="100" min="10" max="10000">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">批处理超时 (毫秒)</label>
+                            <input type="number" id="processor-timeout" class="form-input" value="1000" min="100" max="60000">
+                        </div>
                     </div>
                     <div class="form-group">
-                        <label>批处理大小</label>
-                        <input type="number" id="processor-batch-size" value="100" min="10" max="1000">
-                    </div>
-                    <div class="form-group">
-                        <label>批处理超时 (毫秒)</label>
-                        <input type="number" id="processor-timeout" value="1000" min="100" max="10000">
-                    </div>
-                    <div class="form-group">
-                        <label>清洗规则 (JSON数组)</label>
-                        <textarea id="processor-clean-rules" rows="6">[
+                        <label class="form-label">清洗规则 (JSON数组)</label>
+                        <textarea id="processor-clean-rules" class="form-textarea" rows="6">[
   {"field": "path", "operation": "trim", "value": ""}
 ]</textarea>
                     </div>
                     <div class="form-group">
-                        <label>过滤规则 (JSON数组)</label>
-                        <textarea id="processor-filter-rules" rows="6">[
+                        <label class="form-label">过滤规则 (JSON数组)</label>
+                        <textarea id="processor-filter-rules" class="form-textarea" rows="6">[
   {"field": "status_code", "operator": "ne", "value": "404"}
 ]</textarea>
                     </div>
                 </div>
 
                 <!-- 接收器配置 -->
-                <div id="config-receiver" class="config-panel">
-                    <h3>接收器配置</h3>
-                    
-                    <h4>TCP/UDP 接收器</h4>
-                    <div class="form-group checkbox-group">
-                        <label><input type="checkbox" id="receiver-tcp" checked> 启用TCP接收器 (端口: <input type="number" id="receiver-tcp-port" value="9000" class="inline-input">)</label>
+                <div id="config-receiver" class="config-panel" style="display: none;">
+                    <!-- TCP/UDP -->
+                    <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <h4 style="margin-bottom: 16px; color: var(--text-secondary);">
+                            <i class="fas fa-ethernet"></i> TCP/UDP 接收器
+                        </h4>
+                        <div class="checkbox-group" style="margin-bottom: 12px;">
+                            <input type="checkbox" id="receiver-tcp" checked>
+                            <label for="receiver-tcp" style="display: flex; align-items: center; gap: 12px;">
+                                启用 TCP 接收器
+                                <input type="number" id="receiver-tcp-port" value="9000" min="1" max="65535" class="form-input" style="width: 100px;">
+                            </label>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="receiver-udp" checked>
+                            <label for="receiver-udp" style="display: flex; align-items: center; gap: 12px;">
+                                启用 UDP 接收器
+                                <input type="number" id="receiver-udp-port" value="9001" min="1" max="65535" class="form-input" style="width: 100px;">
+                            </label>
+                        </div>
                     </div>
-                    <div class="form-group checkbox-group">
-                        <label><input type="checkbox" id="receiver-udp" checked> 启用UDP接收器 (端口: <input type="number" id="receiver-udp-port" value="9001" class="inline-input">)</label>
+
+                    <!-- HTTP -->
+                    <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <h4 style="margin-bottom: 16px; color: var(--text-secondary);">
+                            <i class="fas fa-globe"></i> HTTP 接收器
+                        </h4>
+                        <div class="checkbox-group" style="margin-bottom: 16px;">
+                            <input type="checkbox" id="receiver-http" checked>
+                            <label for="receiver-http" style="display: flex; align-items: center; gap: 12px;">
+                                启用 HTTP 接收器
+                                <input type="number" id="receiver-http-port" value="9002" min="1" max="65535" class="form-input" style="width: 100px;">
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">认证 Token <span class="hint">(留空则不启用)</span></label>
+                            <input type="text" id="receiver-http-token" class="form-input" placeholder="例如: secret-token-123" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">IP 白名单 <span class="hint">(逗号分隔)</span></label>
+                            <input type="text" id="receiver-http-ips" class="form-input" placeholder="例如: 127.0.0.1,192.168.1.100">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">速率限制 <span class="hint">(每分钟请求数，0为不限制)</span></label>
+                            <input type="number" id="receiver-http-rate" class="form-input" value="0" min="0" max="100000" style="width: 150px;">
+                        </div>
                     </div>
-                    
-                    <h4 style="margin-top: 20px;">HTTP 接收器</h4>
-                    <div class="form-group checkbox-group">
-                        <label><input type="checkbox" id="receiver-http" checked> 启用HTTP接收器 (端口: <input type="number" id="receiver-http-port" value="9002" class="inline-input">)</label>
-                    </div>
-                    <div class="form-group">
-                        <label>认证 Token <span class="hint">(留空则不启用认证)</span></label>
-                        <input type="text" id="receiver-http-token" placeholder="例如: secret-token-123" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label>IP 白名单 <span class="hint">(逗号分隔，留空则不限制)</span></label>
-                        <input type="text" id="receiver-http-ips" placeholder="例如: 127.0.0.1,192.168.1.100">
-                    </div>
-                    <div class="form-group">
-                        <label>速率限制 <span class="hint">(每分钟最大请求数，0为不限制)</span></label>
-                        <input type="number" id="receiver-http-rate" value="0" min="0" max="10000">
-                    </div>
-                    
-                    <h4 style="margin-top: 20px;">通用配置</h4>
-                    <div class="form-group">
-                        <label>缓冲区大小 (字节)</label>
-                        <input type="number" id="receiver-buffer" value="8192" min="1024" max="65536">
+
+                    <!-- 通用 -->
+                    <div style="background: var(--bg-secondary); padding: 20px; border-radius: 8px;">
+                        <h4 style="margin-bottom: 16px; color: var(--text-secondary);">
+                            <i class="fas fa-sliders-h"></i> 通用配置
+                        </h4>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label">缓冲区大小 (字节)</label>
+                            <input type="number" id="receiver-buffer" class="form-input" value="8192" min="1024" max="65536" style="width: 150px;">
+                        </div>
                     </div>
                 </div>
 
                 <!-- 存储配置 -->
-                <div id="config-storage" class="config-panel">
-                    <h3>存储配置</h3>
-                    <div class="form-group">
-                        <label>存储类型</label>
-                        <select id="storage-type">
-                            <option value="sqlite">SQLite</option>
-                            <option value="memory">内存 (仅测试)</option>
-                        </select>
+                <div id="config-storage" class="config-panel" style="display: none;">
+                    <div class="alert alert-success" style="margin-bottom: 20px;">
+                        <i class="fas fa-database"></i>
+                        <div>
+                            <strong>SQLite 数据库</strong>
+                            <div style="margin-top: 4px; font-size: 13px;">数据存储于单个文件，无需额外配置</div>
+                        </div>
                     </div>
+
                     <div class="form-group">
-                        <label>数据库路径</label>
-                        <input type="text" id="storage-db-path" value="./data/logs.db">
+                        <label class="form-label">存储位置</label>
+                        <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px 16px; font-family: var(--font-mono); color: var(--text-secondary); display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-folder" style="color: var(--warning);"></i>
+                            <span id="storage-path-text">./data/logs.db</span>
+                        </div>
+                        <input type="hidden" id="storage-db-path" value="./data/logs.db">
+                        <div class="form-hint" style="margin-top: 8px; font-size: 13px; color: var(--text-tertiary);">
+                            <i class="fas fa-info-circle"></i> 数据库文件将保存在项目的 data 目录下
+                        </div>
                     </div>
+
                     <div class="form-group">
-                        <label>数据保留时间 (小时)</label>
-                        <input type="number" id="storage-retention" value="168" min="1" max="720">
+                        <label class="form-label">数据保留时间 <span class="hint">(超过将自动清理)</span></label>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
+                            <button type="button" class="btn btn-secondary" style="padding: 6px 16px; font-size: 13px;" onclick="setRetention(24)">1天</button>
+                            <button type="button" class="btn btn-secondary" style="padding: 6px 16px; font-size: 13px;" onclick="setRetention(168)">1周</button>
+                            <button type="button" class="btn btn-secondary" style="padding: 6px 16px; font-size: 13px;" onclick="setRetention(720)">30天</button>
+                            <button type="button" class="btn btn-secondary" style="padding: 6px 16px; font-size: 13px;" onclick="setRetention(2160)">3个月</button>
+                            <button type="button" class="btn btn-secondary" style="padding: 6px 16px; font-size: 13px;" onclick="setRetention(8760)">1年</button>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="number" id="storage-retention" class="form-input" value="168" min="1" max="8760" style="width: 120px;">
+                            <span style="color: var(--text-tertiary);">小时</span>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <div>
+                            <strong>温馨提示：</strong>如需备份数据库文件，请直接复制 <code style="background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px;">./data/logs.db</code> 到安全位置
+                        </div>
                     </div>
                 </div>
 
-                <div class="config-actions">
-                    <button class="btn-primary" onclick="saveConfig()"><i class="fas fa-save"></i> 保存配置</button>
-                    <button class="btn-secondary" onclick="loadConfig()"><i class="fas fa-rotate-right"></i> 重新加载</button>
+                <!-- 操作按钮 -->
+                <div style="display: flex; gap: 12px; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-light);">
+                    <button class="btn btn-primary" onclick="saveConfig()">
+                        <i class="fas fa-save"></i>
+                        保存配置
+                    </button>
+                    <button class="btn btn-secondary" onclick="loadConfig()">
+                        <i class="fas fa-rotate-right"></i>
+                        重新加载
+                    </button>
                 </div>
             </section>
 
             <!-- 导入面板 -->
             <section id="import" class="tab-content">
-                <div class="import-area">
-                    <h3><i class="fas fa-folder-open"></i> 日志文件导入</h3>
-                    <div class="upload-zone" id="upload-zone">
-                        <div class="upload-icon"><i class="fas fa-cloud-arrow-up"></i></div>
-                        <p>拖拽文件到此处或点击上传</p>
-                        <input type="file" id="file-input" accept=".log,.txt,.csv,.json" multiple>
-                        <p class="upload-hint">支持格式: .log, .txt, .csv, .json</p>
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3 class="panel-title">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            日志文件导入
+                        </h3>
                     </div>
-                    <div class="upload-progress" id="upload-progress" style="display: none;">
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="progress-fill"></div>
+                    
+                    <div class="upload-zone" id="upload-zone" style="border: 2px dashed var(--border-color); border-radius: var(--radius-lg); padding: 48px; text-align: center; cursor: pointer; transition: all 0.3s;">
+                        <div style="font-size: 48px; color: var(--primary); margin-bottom: 16px;">
+                            <i class="fas fa-cloud-arrow-up"></i>
                         </div>
-                        <p id="progress-text">正在上传...</p>
+                        <h4 style="margin-bottom: 8px; color: var(--text-primary);">拖拽文件到此处或点击上传</h4>
+                        <p style="color: var(--text-tertiary); font-size: 14px;">支持格式: .log, .txt, .csv, .json</p>
+                        <input type="file" id="file-input" accept=".log,.txt,.csv,.json" multiple style="display: none;">
                     </div>
-                    <div class="upload-results" id="upload-results"></div>
+
+                    <div id="upload-progress" style="display: none; margin-top: 20px;">
+                        <div style="background: var(--bg-secondary); border-radius: 4px; height: 8px; overflow: hidden;">
+                            <div id="progress-fill" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                        </div>
+                        <p id="progress-text" style="text-align: center; margin-top: 8px; color: var(--text-secondary);">正在上传...</p>
+                    </div>
+
+                    <div id="upload-results" style="margin-top: 20px;"></div>
                 </div>
             </section>
 
             <!-- 导出面板 -->
             <section id="export" class="tab-content">
-                <div class="export-area">
-                    <h3><i class="fas fa-share-from-square"></i> 数据导出</h3>
-                    <div class="export-form">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3 class="panel-title">
+                            <i class="fas fa-download"></i>
+                            数据导出
+                        </h3>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
                         <div class="form-group">
-                            <label>导出格式</label>
-                            <select id="export-format">
+                            <label class="form-label">导出格式</label>
+                            <select id="export-format" class="form-select">
                                 <option value="excel">Excel (.xlsx)</option>
                                 <option value="csv">CSV (.csv)</option>
                                 <option value="json">JSON (.json)</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>文件名</label>
-                            <input type="text" id="export-filename" placeholder="logs_export">
+                            <label class="form-label">文件名</label>
+                            <input type="text" id="export-filename" class="form-input" placeholder="logs_export">
                         </div>
                         <div class="form-group">
-                            <label>时间范围</label>
-                            <div class="date-range">
-                                <input type="datetime-local" id="export-start-time">
-                                <span>至</span>
-                                <input type="datetime-local" id="export-end-time">
+                            <label class="form-label">时间范围</label>
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <input type="datetime-local" id="export-start-time" class="form-input">
+                                <span style="color: var(--text-tertiary);">至</span>
+                                <input type="datetime-local" id="export-end-time" class="form-input">
                             </div>
                         </div>
                         <div class="form-group">
-                            <label>状态码过滤</label>
-                            <input type="text" id="export-status" placeholder="例如: 200,404,500">
+                            <label class="form-label">状态码过滤</label>
+                            <input type="text" id="export-status" class="form-input" placeholder="例如: 200,404,500">
                         </div>
-                        <button class="btn-primary" onclick="exportLogs()"><i class="fas fa-download"></i> 导出数据</button>
+                    </div>
+
+                    <div style="margin-top: 24px;">
+                        <button class="btn btn-primary" onclick="exportLogs()">
+                            <i class="fas fa-download"></i>
+                            导出数据
+                        </button>
                     </div>
                 </div>
             </section>
         </main>
 
-        <footer>
+        <footer class="footer">
             <p>轻量级高并发日志数据处理系统 | Go + Gin + SQLite</p>
         </footer>
     </div>
@@ -387,13 +545,16 @@
     <!-- 日志详情弹窗 -->
     <div class="modal" id="log-modal">
         <div class="modal-content">
-            <span class="close-btn" onclick="closeModal()">&times;</span>
-            <h3>日志详情</h3>
-            <pre id="log-detail"></pre>
+            <div class="modal-header">
+                <h3>日志详情</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre id="log-detail" style="background: var(--bg-secondary); padding: 16px; border-radius: 8px; overflow: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.6;"></pre>
+            </div>
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=6"></script>
-    <script src="/static/js/debug.js"></script>
+    <script src="/static/js/app.js?v=12"></script>
 </body>
 </html>

@@ -66,10 +66,20 @@ type FilterRule struct {
 func NewProcessor(cfg config.ProcessorConfig, parser Parser, storage Storage) *Processor {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// 队列容量基于BatchSize计算，确保足够的缓冲空间应对突发流量
+	// 容量 = BatchSize * 100，最小50,000，最大200,000
+	queueSize := cfg.BatchSize * 100
+	if queueSize < 50000 {
+		queueSize = 50000
+	}
+	if queueSize > 200000 {
+		queueSize = 200000
+	}
+
 	p := &Processor{
 		config:      cfg,
-		inputChan:   make(chan string, cfg.BatchSize*2),
-		outputChan:  make(chan *models.LogEntry, cfg.BatchSize*2),
+		inputChan:   make(chan string, queueSize),
+		outputChan:  make(chan *models.LogEntry, queueSize),
 		parser:      parser,
 		storage:     storage,
 		cleanRules:  make([]CleanRule, 0),

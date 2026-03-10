@@ -16,8 +16,8 @@ import (
 	"time"
 )
 
-// Handler 数据处理函数类型
-type Handler func(line string)
+// Handler 数据处理函数类型，返回是否成功处理
+type Handler func(line string) bool
 
 // Receiver 接收器接口
 type Receiver interface {
@@ -184,7 +184,10 @@ func (r *TCPReceiver) handleConnection(conn net.Conn) {
 
 		line = strings.TrimRight(line, "\r\n")
 		if line != "" {
-			r.handler(line)
+			if !r.handler(line) {
+				// 处理器队列满，增加短暂延迟让队列消化
+				time.Sleep(time.Millisecond)
+			}
 		}
 	}
 }
@@ -259,7 +262,10 @@ func (r *UDPReceiver) Start(handler Handler) error {
 
 		line := strings.TrimSpace(string(buffer[:n]))
 		if line != "" {
-			r.handler(line)
+			if !r.handler(line) {
+				// 处理器队列满，增加短暂延迟让队列消化
+				time.Sleep(time.Millisecond)
+			}
 		}
 	}
 }
@@ -497,11 +503,11 @@ func NewFileImporter() *FileImporter {
 	return &FileImporter{}
 }
 
-// ImportFile 导入文件
-func (f *FileImporter) ImportFile(filepath string, handler Handler) error {
+// ImportFile 导入文件 (返回成功导入的行数)
+func (f *FileImporter) ImportFile(filepath string, handler func(string) bool) (int, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer file.Close()
 
@@ -516,11 +522,11 @@ func (f *FileImporter) ImportFile(filepath string, handler Handler) error {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return err
+		return lineCount, err
 	}
 
 	log.Printf("Imported %d lines from %s", lineCount, filepath)
-	return nil
+	return lineCount, nil
 }
 
 

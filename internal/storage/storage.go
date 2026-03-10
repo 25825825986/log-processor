@@ -261,9 +261,9 @@ func (s *SQLiteStorage) Statistics(filter models.FilterCondition) (*models.Stati
 		rows.Close()
 	}
 
-	// 时间序列（按小时）
-	timeQuery := fmt.Sprintf(`SELECT strftime('%%Y-%%m-%%d %%H:00:00', timestamp) as hour, COUNT(*) 
-		FROM logs %s GROUP BY hour ORDER BY hour`, where)
+	// 时间序列（按 5 分钟区间）
+	timeQuery := fmt.Sprintf(`SELECT strftime('%%Y-%%m-%%d %%H:%%M', timestamp) as time_bucket, COUNT(*) 
+		FROM logs %s GROUP BY time_bucket ORDER BY time_bucket LIMIT 50`, where)
 	rows, err = s.db.Query(timeQuery, args...)
 	if err == nil {
 		for rows.Next() {
