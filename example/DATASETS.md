@@ -63,24 +63,6 @@ wget http://www.secrepo.com/maccdc2012/http.log.gz
 
 ---
 
-### 4. Kaggle 数据集（需注册）
-访问 https://www.kaggle.com/datasets 搜索 "web logs"
-
-推荐数据集：
-- **Web Server Log Samples**: 包含正常和攻击请求
-- **E-commerce Logs**: 电商网站用户行为数据
-- **System Logs**: Linux 系统日志
-
-下载方式：
-```bash
-# 先安装 kaggle API: pip install kaggle
-# 在 https://www.kaggle.com/account 获取 API Token
-
-python example/download_kaggle_logs.py
-```
-
----
-
 ## 格式转换
 
 如果下载的数据集格式不匹配，使用转换脚本：

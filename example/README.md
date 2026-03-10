@@ -22,8 +22,7 @@ example/
     ├── send_logs_unix.sh         # Unix/Mac 发送日志脚本
     ├── send_logs_windows.ps1     # Windows 发送日志脚本
     ├── download_nasa_unix.sh     # Unix 下载 NASA 数据集
-    ├── download_nasa_windows.ps1 # Windows 下载 NASA 数据集
-    └── download_kaggle.py        # 下载 Kaggle 数据集
+    └── download_nasa_windows.ps1 # Windows 下载 NASA 数据集
 ```
 
 ---
@@ -197,7 +196,6 @@ netstat -an | findstr 9000
 
 查看 `DATASETS.md` 了解如何获取开源日志数据集进行测试：
 - NASA 1995 年真实访问日志（130万条）
-- Kaggle 网络安全数据集
 
 ---
 
