@@ -44,25 +44,19 @@ func NewSQLiteStorage(cfg config.StorageConfig) (*SQLiteStorage, error) {
 	}
 
 	// 高性能 SQLite 配置
-	db, err := sql.Open("sqlite3", cfg.DBPath+"?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-64000&_temp_store=memory&_mmap_size=268435456")
+	db, err := sql.Open("sqlite3", cfg.DBPath+"?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-64000")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// 执行额外的 PRAGMA 优化
-	if _, err := db.Exec(`
-		PRAGMA journal_mode = WAL;
-		PRAGMA synchronous = NORMAL;
-		PRAGMA cache_size = -64000;
-		PRAGMA temp_store = memory;
-		PRAGMA mmap_size = 268435456;
-	`); err != nil {
-		log.Printf("[WARN] Failed to set PRAGMA: %v", err)
+	// 测试连接
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	// 设置连接池
-	db.SetMaxOpenConns(5)  // SQLite 不需要太多连接
-	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
 
 	s := &SQLiteStorage{
 		db:     db,
@@ -210,7 +204,12 @@ func (s *SQLiteStorage) Statistics(filter models.FilterCondition) (*models.Stati
 	}
 
 	// 错误数量 (status_code >= 400)
-	errorQuery := fmt.Sprintf("SELECT COUNT(*) FROM logs %s AND status_code >= 400", where)
+	var errorQuery string
+	if where == "" {
+		errorQuery = "SELECT COUNT(*) FROM logs WHERE status_code >= 400"
+	} else {
+		errorQuery = fmt.Sprintf("SELECT COUNT(*) FROM logs %s AND status_code >= 400", where)
+	}
 	if err := s.db.QueryRow(errorQuery, args...).Scan(&stats.ErrorCount); err != nil {
 		return nil, err
 	}

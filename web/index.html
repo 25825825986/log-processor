@@ -24,36 +24,93 @@
         <main>
             <!-- 概览面板 -->
             <section id="dashboard" class="tab-content active">
+                <!-- 统计卡片 -->
                 <div class="stats-grid">
-                    <div class="stat-card">
-                        <h3>总日志数</h3>
-                        <div class="stat-value" id="total-logs">-</div>
+                    <div class="stat-card primary">
+                        <div class="stat-icon"><i class="fas fa-database"></i></div>
+                        <div class="stat-content">
+                            <h3>总日志数</h3>
+                            <div class="stat-value" id="total-logs">-</div>
+                            <div class="stat-trend" id="total-trend"></div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3>错误数</h3>
-                        <div class="stat-value error" id="error-logs">-</div>
+                    <div class="stat-card error">
+                        <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                        <div class="stat-content">
+                            <h3>错误数</h3>
+                            <div class="stat-value" id="error-logs">-</div>
+                            <div class="stat-rate" id="error-rate"></div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3>平均响应时间</h3>
-                        <div class="stat-value" id="avg-response">-</div>
+                    <div class="stat-card info">
+                        <div class="stat-icon"><i class="fas fa-clock"></i></div>
+                        <div class="stat-content">
+                            <h3>平均响应时间</h3>
+                            <div class="stat-value" id="avg-response">-</div>
+                            <div class="stat-label">毫秒</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <h3>系统状态</h3>
-                        <div class="stat-value success" id="system-status">运行中</div>
+                    <div class="stat-card success">
+                        <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+                        <div class="stat-content">
+                            <h3>系统状态</h3>
+                            <div class="stat-value" id="system-status">运行中</div>
+                            <div class="stat-label" id="last-update">刚刚更新</div>
+                        </div>
                     </div>
                 </div>
+
+                <!-- 图表区域 -->
                 <div class="charts-container">
                     <div class="chart-box">
-                        <h3>状态码分布</h3>
-                        <div id="status-chart"></div>
+                        <div class="chart-header">
+                            <h3><i class="fas fa-chart-pie"></i> 状态码分布</h3>
+                        </div>
+                        <div id="status-chart" class="chart-body">
+                            <div class="loading">加载中...</div>
+                        </div>
                     </div>
                     <div class="chart-box">
-                        <h3>请求方法分布</h3>
-                        <div id="method-chart"></div>
+                        <div class="chart-header">
+                            <h3><i class="fas fa-chart-bar"></i> 请求方法分布</h3>
+                        </div>
+                        <div id="method-chart" class="chart-body">
+                            <div class="loading">加载中...</div>
+                        </div>
                     </div>
                     <div class="chart-box full-width">
-                        <h3>时间趋势</h3>
-                        <div id="trend-chart"></div>
+                        <div class="chart-header">
+                            <h3><i class="fas fa-chart-line"></i> 时间趋势</h3>
+                            <div class="chart-actions">
+                                <button class="btn-icon" onclick="refreshDashboard()" title="刷新"><i class="fas fa-sync-alt"></i></button>
+                            </div>
+                        </div>
+                        <div id="trend-chart" class="chart-body">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 快捷操作 -->
+                <div class="quick-actions">
+                    <h3><i class="fas fa-bolt"></i> 快捷操作</h3>
+                    <div class="action-buttons">
+                        <button class="action-btn" onclick="switchTab('query')">
+                            <i class="fas fa-search"></i>
+                            <span>查询日志</span>
+                        </button>
+                        <button class="action-btn" onclick="switchTab('import')">
+                            <i class="fas fa-upload"></i>
+                            <span>导入日志</span>
+                        </button>
+                        <button class="action-btn" onclick="switchTab('export')">
+                            <i class="fas fa-download"></i>
+                            <span>导出数据</span>
+                        </button>
+                        <button class="action-btn" onclick="switchTab('config')">
+                            <i class="fas fa-cog"></i>
+                            <span>系统配置</span>
+                        </button>
                     </div>
                 </div>
             </section>
@@ -336,6 +393,7 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=5"></script>
+    <script src="/static/js/app.js?v=6"></script>
+    <script src="/static/js/debug.js"></script>
 </body>
 </html>

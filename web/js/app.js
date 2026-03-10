@@ -62,12 +62,22 @@ const FORMAT_TIME_MAPPING = {
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('[App] Initializing...');
+    
     initTabs();
     initConfigTabs();
     initUploadZone();
     initFormatListeners();
-    loadDashboard();
+    
+    // 延迟加载仪表板数据，确保DOM完全渲染
+    setTimeout(() => {
+        console.log('[App] Loading dashboard...');
+        loadDashboard();
+    }, 100);
+    
     loadConfig();
+    
+    console.log('[App] Initialization complete');
 });
 
 // 初始化格式监听器
@@ -298,19 +308,79 @@ async function handleFiles(files) {
 async function loadDashboard() {
     try {
         const response = await fetch('/api/statistics');
-        const stats = await response.json();
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         
-        document.getElementById('total-logs').textContent = stats.total_count?.toLocaleString() || '-';
-        document.getElementById('error-logs').textContent = stats.error_count?.toLocaleString() || '-';
-        document.getElementById('avg-response').textContent = stats.avg_response_time ? 
-            Math.round(stats.avg_response_time) + 'ms' : '-';
+        const stats = await response.json();
+        console.log('Dashboard data:', stats);
+        
+        // 更新统计卡片
+        const totalCount = stats.total_count || 0;
+        const errorCount = stats.error_count || 0;
+        const avgResponse = stats.avg_response_time || 0;
+        
+        document.getElementById('total-logs').textContent = totalCount.toLocaleString();
+        document.getElementById('error-logs').textContent = errorCount.toLocaleString();
+        document.getElementById('avg-response').textContent = Math.round(avgResponse) + 'ms';
+        
+        // 计算错误率
+        if (totalCount > 0) {
+            const errorRate = ((errorCount / totalCount) * 100).toFixed(1);
+            document.getElementById('error-rate').textContent = `错误率: ${errorRate}%`;
+        } else {
+            document.getElementById('error-rate').textContent = '';
+        }
+        
+        // 更新时间戳
+        document.getElementById('last-update').textContent = '刚刚更新';
         
         // 渲染图表
-        renderStatusChart(stats.status_code_dist);
-        renderMethodChart(stats.method_dist);
-        renderTrendChart(stats.time_series);
+        renderStatusChart(stats.status_code_dist || {});
+        renderMethodChart(stats.method_dist || {});
+        renderTrendChart(stats.time_series || []);
+        
     } catch (error) {
         console.error('Failed to load dashboard:', error);
+        document.getElementById('system-status').textContent = '连接失败';
+        document.getElementById('system-status').className = 'stat-value error';
+        document.getElementById('last-update').textContent = '刷新失败';
+        
+        // 显示空状态
+        renderEmptyChart('status-chart', '暂无数据');
+        renderEmptyChart('method-chart', '暂无数据');
+        renderEmptyChart('trend-chart', '暂无数据');
+    }
+}
+
+// 渲染空图表状态
+function renderEmptyChart(containerId, message) {
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-chart-bar"></i>
+                <p>${message}</p>
+            </div>
+        `;
+    }
+}
+
+// 刷新仪表板
+function refreshDashboard() {
+    const btn = document.querySelector('.btn-icon .fa-sync-alt');
+    if (btn) {
+        btn.classList.add('fa-spin');
+        setTimeout(() => btn.classList.remove('fa-spin'), 1000);
+    }
+    loadDashboard();
+}
+
+// 切换标签页
+function switchTab(tabName) {
+    const tabBtn = document.querySelector(`.nav-btn[data-tab="${tabName}"]`);
+    if (tabBtn) {
+        tabBtn.click();
     }
 }
 
@@ -318,23 +388,30 @@ async function loadDashboard() {
 function renderStatusChart(data) {
     const container = document.getElementById('status-chart');
     if (!data || Object.keys(data).length === 0) {
-        container.innerHTML = '<p class="no-data">暂无数据</p>';
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-chart-pie"></i>
+                <p>暂无状态码数据</p>
+            </div>
+        `;
         return;
     }
     
-    let html = '<div class="chart-bars">';
+    // 按状态码排序
+    const sortedData = Object.entries(data).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
     const max = Math.max(...Object.values(data));
     
-    for (const [code, count] of Object.entries(data)) {
-        const percentage = (count / max) * 100;
-        const barClass = code >= 500 ? 'error' : code >= 400 ? 'warning' : 'success';
+    let html = '<div class="chart-bars">';
+    for (const [code, count] of sortedData) {
+        const percentage = max > 0 ? (count / max) * 100 : 0;
+        const barClass = parseInt(code) >= 500 ? 'error' : parseInt(code) >= 400 ? 'warning' : 'success';
         html += `
             <div class="chart-bar-row">
                 <span class="chart-label">${code}</span>
                 <div class="chart-bar-wrapper">
                     <div class="chart-bar ${barClass}" style="width: ${percentage}%"></div>
                 </div>
-                <span class="chart-value">${count}</span>
+                <span class="chart-value">${count.toLocaleString()}</span>
             </div>
         `;
     }
@@ -346,22 +423,27 @@ function renderStatusChart(data) {
 function renderMethodChart(data) {
     const container = document.getElementById('method-chart');
     if (!data || Object.keys(data).length === 0) {
-        container.innerHTML = '<p class="no-data">暂无数据</p>';
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-chart-bar"></i>
+                <p>暂无请求方法数据</p>
+            </div>
+        `;
         return;
     }
     
-    let html = '<div class="chart-bars">';
     const max = Math.max(...Object.values(data));
+    let html = '<div class="chart-bars">';
     
     for (const [method, count] of Object.entries(data)) {
-        const percentage = (count / max) * 100;
+        const percentage = max > 0 ? (count / max) * 100 : 0;
         html += `
             <div class="chart-bar-row">
-                <span class="chart-label">${method}</span>
+                <span class="chart-label">${method || 'UNKNOWN'}</span>
                 <div class="chart-bar-wrapper">
                     <div class="chart-bar" style="width: ${percentage}%"></div>
                 </div>
-                <span class="chart-value">${count}</span>
+                <span class="chart-value">${count.toLocaleString()}</span>
             </div>
         `;
     }
@@ -373,18 +455,26 @@ function renderMethodChart(data) {
 function renderTrendChart(data) {
     const container = document.getElementById('trend-chart');
     if (!data || data.length === 0) {
-        container.innerHTML = '<p class="no-data">暂无数据</p>';
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-chart-line"></i>
+                <p>暂无时间趋势数据</p>
+            </div>
+        `;
         return;
     }
     
-    // 简化的趋势显示
-    const max = Math.max(...data.map(d => d.count));
+    const max = Math.max(...data.map(d => d.count || 0));
     let html = '<div class="trend-chart">';
     
-    data.slice(-20).forEach(point => {
-        const height = (point.count / max) * 100;
+    // 只显示最近20个点
+    const displayData = data.slice(-20);
+    displayData.forEach(point => {
+        const count = point.count || 0;
+        const height = max > 0 ? (count / max) * 100 : 0;
+        const time = point.time || point.Time || '';
         html += `
-            <div class="trend-bar" style="height: ${height}%;" title="${point.time}: ${point.count}"></div>
+            <div class="trend-bar" style="height: ${Math.max(height, 5)}%;" title="${time}: ${count}"></div>
         `;
     });
     
@@ -823,6 +913,15 @@ window.onclick = function(event) {
 // 定时刷新仪表板
 setInterval(() => {
     if (currentTab === 'dashboard') {
+        console.log('[App] Auto-refreshing dashboard...');
         loadDashboard();
     }
 }, 30000);
+
+// 页面可见性变化时刷新
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && currentTab === 'dashboard') {
+        console.log('[App] Page visible, refreshing dashboard...');
+        loadDashboard();
+    }
+});

@@ -1,6 +1,7 @@
 # 日志发送示例脚本 (PowerShell)
+# 使用 UTF-8 with BOM 编码
 
-Write-Host "发送测试日志到日志处理系统..."
+Write-Host "Sending test logs to log processor..."
 
 # TCP 方式发送 Nginx 格式日志
 try {
@@ -19,9 +20,9 @@ try {
 
     $writer.Close()
     $tcpClient.Close()
-    Write-Host "TCP 日志发送完成 (100条)"
+    Write-Host "TCP: Sent 100 logs"
 } catch {
-    Write-Host "TCP 发送失败: $_"
+    Write-Host "TCP Error: $_"
 }
 
 # HTTP 方式发送
@@ -31,9 +32,9 @@ try {
 "@
 
     Invoke-RestMethod -Uri "http://localhost:9002/logs" -Method Post -Body $body -ContentType "text/plain"
-    Write-Host "HTTP 日志发送完成"
+    Write-Host "HTTP: Sent 1 log"
 } catch {
-    Write-Host "HTTP 发送失败: $_"
+    Write-Host "HTTP Error: $_"
 }
 
-Write-Host "所有测试日志发送完成！"
+Write-Host "Done!"

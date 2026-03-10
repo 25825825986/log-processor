@@ -412,10 +412,13 @@ func (s *Server) getStatistics(c *gin.Context) {
 
 	stats, err := s.storage.Statistics(filter)
 	if err != nil {
+		log.Printf("[API] Statistics query failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Printf("[API] Statistics: total=%d, errors=%d, avg_response=%.2fms",
+		stats.TotalCount, stats.ErrorCount, stats.AvgResponseTime)
 	c.JSON(http.StatusOK, stats)
 }
 
