@@ -67,13 +67,13 @@ func NewProcessor(cfg config.ProcessorConfig, parser Parser, storage Storage) *P
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// 队列容量基于BatchSize计算，确保足够的缓冲空间应对突发流量
-	// 容量 = BatchSize * 100，最小50,000，最大200,000
-	queueSize := cfg.BatchSize * 100
-	if queueSize < 50000 {
-		queueSize = 50000
+	// 容量 = BatchSize * 200，最小100,000，最大500,000
+	queueSize := cfg.BatchSize * 200
+	if queueSize < 100000 {
+		queueSize = 100000
 	}
-	if queueSize > 200000 {
-		queueSize = 200000
+	if queueSize > 500000 {
+		queueSize = 500000
 	}
 
 	p := &Processor{
