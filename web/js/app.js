@@ -484,7 +484,7 @@ async function loadDashboard() {
         // 渲染图表
         renderStatusChart(stats.status_code_dist || {});
         renderMethodChart(stats.method_dist || {});
-        renderTrendChart(stats.time_series || []);
+        // 时间趋势图表已移除
         
     } catch (error) {
         console.error('Failed to load dashboard:', error);
@@ -495,7 +495,7 @@ async function loadDashboard() {
         // 显示空状态
         renderEmptyChart('status-chart', '暂无数据');
         renderEmptyChart('method-chart', '暂无数据');
-        renderEmptyChart('trend-chart', '暂无数据');
+        // 时间趋势图表已移除
     }
 }
 
@@ -584,6 +584,16 @@ function renderStatusChart(data) {
     container.innerHTML = html;
 }
 
+// 格式化数字为紧凑形式（如 1.2K, 3.5M）
+function formatCompactNumber(num) {
+    if (num >= 1000000) {
+        return (num / 1000000).toFixed(1) + 'M';
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(1) + 'K';
+    }
+    return num.toString();
+}
+
 // 渲染方法图表 - 环形图设计
 function renderMethodChart(data) {
     const container = document.getElementById('method-chart');
@@ -657,7 +667,7 @@ function renderMethodChart(data) {
                 <circle cx="90" cy="90" r="45" fill="white"/>
             </svg>
             <div class="donut-center">
-                <div class="donut-value">${total.toLocaleString()}</div>
+                <div class="donut-value" title="${total.toLocaleString()}">${formatCompactNumber(total)}</div>
                 <div class="donut-label">总请求</div>
             </div>
         </div>

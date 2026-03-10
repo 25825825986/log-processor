@@ -938,10 +938,14 @@ body {
 }
 
 .donut-value {
-    font-size: 32px;
+    font-size: 22px;
     font-weight: 700;
     color: var(--text-primary);
     line-height: 1;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .donut-label {
