@@ -4,18 +4,27 @@
 
 使用示例:
     # TCP 测试 - 10万条，100并发，限制速率1000条/秒每连接
-    python benchmark.py -protocol tcp -addr localhost:9000 -total 100000 -c 100 -rate 1000
+    python stress_test.py -protocol tcp -addr localhost:9000 -total 100000 -c 100 -rate 1000
     
     # HTTP 测试 - 持续30秒，50并发
-    python benchmark.py -protocol http -addr localhost:9002 -d 30 -c 50 -rate 100
+    python stress_test.py -protocol http -addr localhost:9002 -d 30 -c 50 -rate 100
     
     # UDP 测试
-    python benchmark.py -protocol udp -addr localhost:9001 -total 50000 -c 50 -rate 1000
+    python stress_test.py -protocol udp -addr localhost:9001 -total 50000 -c 50 -rate 1000
+    
+    # 使用 NASA 真实日志数据测试
+    python download_nasa_logs.py                    # 先下载数据集
+    python stress_test.py -file ../data/NASA_access_log_Jul95.txt -total 100000 -rate 50
 
 注意:
-    系统处理能力上限约 1,500 QPS (SQLite限制)
+    系统处理能力上限约 800 QPS 持续 / 8,000 QPS 突发 (SQLite限制)
     发送速率超过此值将导致日志被丢弃，这是预期行为
     建议使用 -rate 参数限制每连接发送速率
+
+NASA 数据集:
+    下载: python download_nasa_logs.py
+    大小: ~200MB, 约 190万条真实 HTTP 请求
+    时间: 1995年7月 NASA Kennedy Space Center 服务器日志
 """
 
 import argparse
@@ -108,7 +117,7 @@ def generate_log_line(seq):
     return f'{client_ip} - - [{timestamp}] "{method} {path} HTTP/1.1" {status} {size} "{referer}" "{user_agent}" "{response_time}"'
 
 
-def tcp_sender(args, stats, worker_id):
+def tcp_sender(args, stats, worker_id, log_reader=None):
     """TCP发送器 - 带精确总量控制"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -131,7 +140,12 @@ def tcp_sender(args, stats, worker_id):
             if args.rate > 0:
                 time.sleep(1.0 / args.rate)
             
-            log_line = generate_log_line(worker_id)
+            # 从文件读取或生成随机日志
+            if log_reader:
+                log_line = log_reader.get_line()
+            else:
+                log_line = generate_log_line(worker_id)
+            
             try:
                 sock.sendall((log_line + '\n').encode())
             except Exception:
@@ -151,7 +165,7 @@ def tcp_sender(args, stats, worker_id):
         print(f"[Worker {worker_id}] 错误: {e}")
 
 
-def udp_sender(args, stats, worker_id):
+def udp_sender(args, stats, worker_id, log_reader=None):
     """UDP发送器 - 带精确总量控制"""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -172,7 +186,12 @@ def udp_sender(args, stats, worker_id):
             if args.rate > 0:
                 time.sleep(1.0 / args.rate)
             
-            log_line = generate_log_line(worker_id)
+            # 从文件读取或生成随机日志
+            if log_reader:
+                log_line = log_reader.get_line()
+            else:
+                log_line = generate_log_line(worker_id)
+            
             try:
                 sock.sendto((log_line + '\n').encode(), (args.addr.split(':')[0], int(args.addr.split(':')[1])))
             except Exception:
@@ -186,7 +205,7 @@ def udp_sender(args, stats, worker_id):
         print(f"[Worker {worker_id}] 错误: {e}")
 
 
-def http_sender(args, stats, worker_id):
+def http_sender(args, stats, worker_id, log_reader=None):
     """HTTP发送器 - 带精确总量控制"""
     url = f"http://{args.addr}/logs"
     
@@ -209,10 +228,13 @@ def http_sender(args, stats, worker_id):
             # 预占额度
             stats.sent += batch_size
         
-        # 批量生成日志
+        # 批量获取日志行
         lines = []
-        for _ in range(batch_size):
-            lines.append(generate_log_line(worker_id))
+        if log_reader:
+            lines = log_reader.get_batch(batch_size)
+        else:
+            for _ in range(batch_size):
+                lines.append(generate_log_line(worker_id))
         
         body = '\n'.join(lines).encode()
         
@@ -276,6 +298,47 @@ def get_server_count():
     except Exception:
         return 0
 
+# 日志文件读取器（支持循环读取）
+class LogFileReader:
+    def __init__(self, filepath):
+        self.filepath = filepath
+        self.lines = []
+        self.index = 0
+        self.lock = threading.Lock()
+        self._load_file()
+    
+    def _load_file(self):
+        """加载日志文件到内存"""
+        try:
+            with open(self.filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                self.lines = [line.strip() for line in f if line.strip()]
+            print(f"[INFO] 已加载日志文件: {self.filepath}")
+            print(f"       共 {len(self.lines):,} 条日志")
+        except Exception as e:
+            print(f"[ERROR] 无法读取日志文件: {e}")
+            self.lines = []
+    
+    def get_line(self):
+        """获取下一行日志（循环读取）"""
+        with self.lock:
+            if not self.lines:
+                return None
+            line = self.lines[self.index]
+            self.index = (self.index + 1) % len(self.lines)
+            return line
+    
+    def get_batch(self, size):
+        """获取一批日志"""
+        with self.lock:
+            if not self.lines:
+                return []
+            batch = []
+            for _ in range(size):
+                batch.append(self.lines[self.index])
+                self.index = (self.index + 1) % len(self.lines)
+            return batch
+
+
 def main():
     parser = argparse.ArgumentParser(description='日志处理器并发性能测试')
     parser.add_argument('-protocol', choices=['tcp', 'udp', 'http'], 
@@ -294,14 +357,30 @@ def main():
                        help='每连接限流速率(条/秒)，0为不限流')
     parser.add_argument('-no-clear', action='store_true',
                        help='测试前不清空服务端数据')
+    parser.add_argument('-file', type=str, default=None,
+                       help='从日志文件读取数据发送。支持: 1) 项目自带测试文件(../data/test_logs.txt) '
+                            '2) NASA真实日志(../data/NASA_access_log_Jul95.txt，需先运行 download_nasa_logs.py 下载)')
     args = parser.parse_args()
 
+    # 初始化日志文件读取器（如果指定了文件）
+    log_reader = None
+    if args.file:
+        log_reader = LogFileReader(args.file)
+        if not log_reader.lines:
+            print("[ERROR] 日志文件为空或无法读取，退出测试")
+            return
+    
     print("=" * 50)
     print("日志处理器并发性能测试")
     print("=" * 50)
     print(f"协议: {args.protocol.upper()}")
     print(f"目标: {args.addr}")
     print(f"并发: {args.c}")
+    if args.file:
+        print(f"数据源: 文件 ({len(log_reader.lines):,} 条)")
+        print(f"文件路径: {args.file}")
+    else:
+        print(f"数据源: 随机生成")
     if args.duration > 0:
         print(f"持续时间: {args.duration} 秒")
     else:
@@ -346,7 +425,7 @@ def main():
     start_time = time.time()
     
     with ThreadPoolExecutor(max_workers=args.c) as executor:
-        futures = [executor.submit(sender_func, args, stats, i) for i in range(args.c)]
+        futures = [executor.submit(sender_func, args, stats, i, log_reader) for i in range(args.c)]
         for future in as_completed(futures):
             try:
                 future.result()

@@ -208,16 +208,25 @@ IP 白名单: [应用服务器IP列表]
 
 - **来源**: NASA Kennedy Space Center WWW 服务器
 - **时间**: 1995年7月
-- **记录数**: 约 130 万条
-- **格式**: 类 Nginx 格式
-- **大小**: 约 200MB
+- **记录数**: 约 190 万条
+- **格式**: Apache/Nginx Combined Log Format
+- **大小**: 压缩 20MB / 解压后 200MB
 
-**获取方式：**
+**获取方式（Python 脚本）：**
 ```bash
-# 使用提供的脚本
-cd example/tools
-./download_nasa_unix.sh        # Unix/Mac
-.\download_nasa_windows.ps1    # Windows
+cd example/benchmark
+python download_nasa_logs.py              # 下载到默认目录
+python download_nasa_logs.py --verify     # 验证文件完整性
+```
+
+**压测使用示例：**
+```bash
+# 使用 NASA 真实日志进行压测
+cd example/benchmark
+python stress_test.py -file ../data/NASA_access_log_Jul95.txt -total 100000 -rate 50
+
+# 持续压测 60 秒
+python stress_test.py -file ../data/NASA_access_log_Jul95.txt -duration 60 -rate 100 -c 10
 ```
 
 **格式示例：**

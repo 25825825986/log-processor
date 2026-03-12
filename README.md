@@ -240,6 +240,48 @@ curl -X POST http://localhost:9002/logs \
 - 并发连接数: 1000+
 - 数据存储: 取决于磁盘容量
 
+## 项目结构
+
+```
+Log_processor/
+├── cmd/server/main.go         # 主程序入口
+├── internal/                  # 内部包
+│   ├── config/                # 配置管理
+│   ├── exporter/              # 数据导出
+│   ├── models/                # 数据模型
+│   ├── parser/                # 日志解析器
+│   ├── processor/             # 日志处理器
+│   ├── receiver/              # 网络接收器 (TCP/UDP/HTTP)
+│   ├── server/                # Web 服务器
+│   └── storage/               # 数据存储 (SQLite)
+├── web/                       # 前端静态资源
+│   ├── index.html
+│   ├── css/style.css
+│   └── js/app.js
+├── example/                   # 测试工具和数据
+│   ├── benchmark/             # 性能测试脚本
+│   ├── data/                  # 测试数据文件
+│   └── tools/                 # 辅助工具
+├── data/                      # 运行时数据（数据库）
+├── logs/                      # 应用日志
+└── exports/                   # 数据导出目录
+```
+
+## 存储占用说明
+
+| 目录 | 用途 | 可清理 |
+|------|------|--------|
+| `data/` | SQLite 数据库 | ❌ 生产数据 |
+| `logs/` | 应用日志 | ⚠️ 保留最近2个 |
+| `exports/` | 导出的报表 | ✅ 可清理 |
+
+## 开发规范
+
+- **cmd/**: 只包含 main 包和程序入口
+- **internal/**: 核心业务逻辑，不对外暴露
+- **web/**: 纯静态文件，无后端渲染
+- **example/**: 测试和工具脚本，不参与主构建
+
 ## 开发计划
 
 - [ ] 支持更多日志格式 (Syslog, LTSV)
