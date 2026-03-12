@@ -1,13 +1,12 @@
 # 日志处理器 - 测试工具集
 
-本目录包含用于测试、数据生成和辅助工具的脚本。
+本目录包含用于测试、数据生成和辅助工具的脚本，以及详细的配置指南和开源数据集说明。
 
 ## 📁 目录结构
 
 ```
 example/
 ├── README.md                      # 本说明文档
-├── DATASETS.md                    # 开源数据集说明
 ├── benchmark/                     # 性能测试脚本
 │   ├── stress_test.py            # 压力测试（Python）- 支持随机真实数据
 │   ├── stress_test.go            # 压力测试（Go）
@@ -35,7 +34,7 @@ example/
 cd ..
 go run cmd/server/main.go
 # 或使用高性能配置
-go run cmd/server/main.go -config config.extreme.json
+go run cmd/server/main.go -config config.performance.json
 ```
 
 ### 2. 压力测试
@@ -113,27 +112,131 @@ python find_max_capacity.py -protocol tcp -addr localhost:9000
 | User-Agent | 8种真实浏览器/工具随机 |
 | Response Time | 0.001-5.0秒随机 |
 
-这种随机性确保测试结果更接近生产环境真实性能（避免CPU缓存和分支预测优化导致的虚高数据）。
+### 性能基准参考
 
-### 测试示例
+基于 SQLite 存储的系统性能（单节点，SSD磁盘）：
 
-**场景1: 推荐 - 测试稳定处理能力（限流）**
-```bash
-# 100并发 × 15条/秒 = 1,500 QPS（系统稳定上限）
-python stress_test.py -protocol tcp -total 100000 -c 100 -rate 15
+| 能力类型 | 高性能配置 (50 worker) | 说明 |
+|---------|----------------------|------|
+| **突发处理能力** | ~8,000 QPS | 短时峰值，依赖 200,000 队列缓冲 |
+| **持续处理能力** | **~800 QPS** | 长期稳定，SQLite 单线程写入上限 |
+
+**为什么会有差异？**
+
+```
+突发场景（10,000条 @ 8,000 QPS）:
+发送: ████████░░░░░░░░░░░░  (1.25秒发完)
+队列: [████████░░░░░░░░░░░░]  队列装得下
+处理: ░░░░░░░░████████████  3秒后消化完
+结果: ✅ 100% 成功
+
+持续场景（100,000条 @ 1,500 QPS）:
+发送: ████████████████████  (持续66秒)
+队列: [████████████████████]  队列填满后溢出
+处理: ░░░░░░░░░░░░░░░░░░░░  持续处理中
+结果: ❌ 只处理了 ~40%，其余丢弃
 ```
 
-**场景2: 测试极限吞吐量（可能丢包）**
+---
+
+## 📡 接收器配置指南
+
+### 概述
+
+系统支持三种日志接收方式：
+- **TCP** - 长连接，适合高吞吐量的持续日志流
+- **UDP** - 无连接，轻量级，适合大量设备上报
+- **HTTP** - REST API，适合应用程序主动推送
+
+### TCP/UDP 接收器
+
+| 属性 | TCP | UDP |
+|------|-----|-----|
+| **默认端口** | 9000 | 9001 |
+| **适用场景** | 长连接、高吞吐量、可靠传输 | 大量设备上报、容忍丢包、低延迟 |
+| **典型用户** | Nginx、Apache、Filebeat | Syslog、IoT 设备、Docker |
+
+**使用示例：**
 ```bash
-# 不限流，测试系统峰值（会超过1,500 QPS，导致部分丢弃）
-python stress_test.py -protocol tcp -total 100000 -c 100
+# Nginx 配置
+access_log syslog:server=localhost:9000 main;
+
+# Syslog 发送
+echo '<14>Test message' | nc -u localhost 9001
 ```
 
-**场景3: HTTP 批量发送**
+### HTTP 接收器
+
+| 属性 | 说明 |
+|------|------|
+| **默认端口** | 9002 |
+| **认证 Token** | 防止未授权访问，留空允许匿名（不推荐生产环境） |
+| **IP 白名单** | 限制可访问的 IP 地址，逗号分隔 |
+| **速率限制** | 每 IP 每分钟最大请求数，0为不限制 |
+
+**使用示例：**
 ```bash
-# 50并发 × 30条/秒 = 1,500 QPS
-python stress_test.py -protocol http -total 100000 -c 50 -rate 30
+curl -X POST http://localhost:9002/logs \
+  -H "X-Auth-Token: your-secret-token" \
+  -d '127.0.0.1 - - [01/Jan/2024:00:00:00 +0800] "GET /api/test HTTP/1.1" 200 123'
 ```
+
+### 配置建议
+
+**开发环境：**
+```
+☑️ TCP (9000)  ☑️ UDP (9001)  ☑️ HTTP (9002)
+认证 Token: 留空
+IP 白名单: 留空
+速率限制: 0
+```
+
+**生产环境（安全模式）：**
+```
+☑️ TCP (9000)  ← 内网应用
+☑️ HTTP (9002) ← 外网应用
+认证 Token: [复杂随机字符串]
+IP 白名单: [应用服务器IP列表]
+速率限制: 600
+```
+
+---
+
+## 📚 开源数据集
+
+### NASA HTTP 日志 ⭐推荐
+
+- **来源**: NASA Kennedy Space Center WWW 服务器
+- **时间**: 1995年7月
+- **记录数**: 约 130 万条
+- **格式**: 类 Nginx 格式
+- **大小**: 约 200MB
+
+**获取方式：**
+```bash
+# 使用提供的脚本
+cd example/tools
+./download_nasa_unix.sh        # Unix/Mac
+.\download_nasa_windows.ps1    # Windows
+```
+
+**格式示例：**
+```
+199.72.81.55 - - [01/Jul/1995:00:00:01 -0400] "GET /history/apollo/ HTTP/1.0" 200 6245
+```
+
+**导入系统：**
+1. 系统配置保持默认（Nginx 格式）
+2. 直接导入下载的文件
+3. 即可分析 1995 年 NASA 网站的访问情况
+
+### 其他数据集
+
+| 数据集 | 记录数 | 用途 |
+|--------|--------|------|
+| Apache 官方示例 | - | 格式兼容性测试 |
+| SecRepo 安全日志 | 数百万条 | 安全分析、入侵检测测试 |
+| test_logs.txt (自带) | 10条 | 功能测试 |
 
 ---
 
@@ -146,10 +249,12 @@ cd tools
 python generate_test_logs.py -n 10000 -f nginx -o test_logs.txt
 ```
 
-参数:
-- `-n`: 生成日志条数
-- `-f`: 格式 (nginx/apache/json/csv)
-- `-o`: 输出文件
+### 日志格式转换
+
+```bash
+cd tools
+python convert_log_format.py input.csv output.txt --input-format csv --output-format nginx
+```
 
 ### 发送日志到服务器
 
@@ -166,52 +271,6 @@ chmod +x send_logs_unix.sh
 ./send_logs_unix.sh
 ```
 
-### 日志格式转换
-
-```bash
-cd tools
-python convert_log_format.py input.csv output.txt --input-format csv --output-format nginx
-```
-
----
-
-## 📈 性能基准参考
-
-基于 SQLite 存储的系统性能（单节点，SSD磁盘）：
-
-### 两种能力指标
-
-| 能力类型 | 高性能配置 (50 worker) | 说明 |
-|---------|----------------------|------|
-| **突发处理能力** | ~8,000 QPS | 短时峰值，依赖 200,000 队列缓冲 |
-| **持续处理能力** | **~800 QPS** | 长期稳定，SQLite 单线程写入上限 |
-
-### 为什么会有差异？
-
-```
-突发场景（10,000条 @ 8,000 QPS）:
-发送: ████████░░░░░░░░░░░░  (1.25秒发完)
-队列: [████████░░░░░░░░░░░░]  队列装得下
-处理: ░░░░░░░░████████████  3秒后消化完
-结果: ✅ 100% 成功
-
-持续场景（100,000条 @ 1,500 QPS）:
-发送: ████████████████████  (持续66秒)
-队列: [████████████████████]  队列填满后溢出
-处理: ░░░░░░░░░░░░░░░░░░░░  持续处理中
-结果: ❌ 只处理了 ~40%，其余丢弃
-```
-
-### 生产环境建议
-
-| 场景 | 建议配置 | 说明 |
-|------|---------|------|
-| **实时日志流** | ≤ 800 QPS | 可持续长期运行，100%成功 |
-| **日志文件导入** | ≤ 8,000 QPS | 短时突发，依赖队列缓冲 |
-| **混合场景** | 平均 ≤ 800 QPS | 允许偶尔突发到 8,000 QPS |
-
-**注意**: 实际性能取决于磁盘 I/O（SSD vs HDD）和 CPU。
-
 ---
 
 ## ❓ 常见问题
@@ -219,61 +278,35 @@ python convert_log_format.py input.csv output.txt --input-format csv --output-fo
 ### Q: 为什么 `find_max_capacity.py` 显示 8,000 QPS 成功，但 `stress_test.py` 1,500 QPS 就丢包？
 
 **A**: 两个脚本测试的是不同的能力：
-
 - `find_max_capacity.py`: 测试**突发能力**，每次只发 10,000 条，然后等待 3 秒让队列消化
 - `stress_test.py`: 测试**持续能力**，长时间发送，队列填满后就会丢包
 
-**系统真实能力**:
-- 突发峰值: ~8,000 QPS（短时，靠 200,000 队列缓冲）
-- 持续稳定: ~800 QPS（长期，SQLite 写入上限）
-
 **建议**: 生产环境实时流控制在 **800 QPS** 以下，文件导入可以用 **8,000 QPS** 快速完成。
-
----
-
-## 🔧 故障排查
 
 ### 测试时成功率低（大量丢弃）
 
 **原因**: 发送速率超过了系统的**持续处理能力**（~800 QPS）
 
 ```bash
-# 1. 检查服务器状态
-curl http://localhost:8080/api/status
-
-# 2. 使用限流测试，确保持续速率 ≤ 800 QPS
-# 示例：50并发 × 15条/秒 = 750 QPS（可长期稳定）
+# 使用限流测试，确保持续速率 ≤ 800 QPS
 python stress_test.py -total 100000 -c 50 -rate 15
-
-# 3. 如需更高吞吐，考虑：
-#    - 部署多个实例分片处理
-#    - 切换到 PostgreSQL 等更强数据库
 ```
 
 ### 连接被拒绝
 
 ```bash
-# 检查服务器是否启动
+# 检查服务器状态
 curl http://localhost:8080/api/status
 
 # 检查端口是否被占用
 netstat -an | findstr 9000
 ```
 
-### 解析错误率高
+### HTTP 返回 401/403/429
 
-查看服务器日志，确认时间格式配置正确：
-```
-# 日志中如果显示 "Parse error"，说明格式不匹配
-# 访问配置页面 http://localhost:8080 调整解析格式
-```
-
----
-
-## 📚 数据集
-
-查看 `DATASETS.md` 了解如何获取开源日志数据集进行测试：
-- NASA 1995 年真实访问日志（130万条）
+- **401 Unauthorized**: 检查 Token 是否正确
+- **403 Forbidden**: 检查客户端 IP 是否在白名单中
+- **429 Too Many Requests**: 增加速率限制值或设置为 0
 
 ---
 
@@ -284,13 +317,11 @@ netstat -an | findstr 9000
 **测试突发能力**（评估峰值承载）:
 ```bash
 python find_max_capacity.py -protocol tcp -addr localhost:9000
-# 或
-python stress_test.py -protocol tcp -total 10000 -c 50 -rate 160  # 8,000 QPS脉冲
 ```
 
 **测试持续能力**（评估生产配置）:
 ```bash
-python stress_test.py -protocol tcp -total 100000 -c 50 -rate 15  # 750 QPS持续
+python stress_test.py -protocol tcp -total 100000 -c 50 -rate 15
 ```
 
 ### 2. 生产环境限流建议

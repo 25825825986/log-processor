@@ -188,6 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initUploadZone();
     initFormatListeners();
     initNumberValidation(); // 初始化数字验证
+    initExportPreview(); // 初始化导出预览
     
     // 延迟加载仪表板数据，确保DOM完全渲染
     setTimeout(() => {
@@ -200,6 +201,23 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('[App] Initialization complete');
 });
 
+// 初始化导出预览
+function initExportPreview() {
+    // 监听时间范围变化
+    const startTimeInput = document.getElementById('export-start-time');
+    const endTimeInput = document.getElementById('export-end-time');
+    
+    if (startTimeInput) {
+        startTimeInput.addEventListener('change', updateExportPreview);
+    }
+    if (endTimeInput) {
+        endTimeInput.addEventListener('change', updateExportPreview);
+    }
+    
+    // 初始更新一次
+    updateExportPreview();
+}
+
 // 初始化格式监听器
 function initFormatListeners() {
     // 日志格式变化时自动设置对应的时间格式
@@ -210,6 +228,58 @@ function initFormatListeners() {
     
     // 初始化时间格式卡片
     initTimeFormatCards();
+    
+    // 初始化配置页面交互
+    initConfigInteractions();
+}
+
+// 初始化配置页面交互
+function initConfigInteractions() {
+    // 格式卡片选择
+    document.querySelectorAll('.format-card').forEach(card => {
+        card.addEventListener('click', () => {
+            document.querySelectorAll('.format-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            const formatInput = document.getElementById('parser-format');
+            if (formatInput) formatInput.value = card.dataset.format;
+        });
+    });
+    
+    // 分隔符选择
+    document.querySelectorAll('.delimiter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.delimiter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const delimiterInput = document.getElementById('parser-delimiter');
+            if (delimiterInput) delimiterInput.value = btn.dataset.value;
+        });
+    });
+    
+    // 缓冲区选择
+    document.querySelectorAll('.buffer-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.buffer-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const bufferInput = document.getElementById('receiver-buffer');
+            if (bufferInput) bufferInput.value = btn.dataset.value;
+        });
+    });
+    
+    // 保留策略选择
+    document.querySelectorAll('.retention-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setRetention(parseInt(btn.dataset.hours));
+        });
+    });
+    
+    // 初始化默认字段映射（如果列表为空）
+    const mappingList = document.getElementById('mapping-list');
+    if (mappingList && mappingList.children.length === 0) {
+        addMappingRow('0', 'client_ip');
+        addMappingRow('3', 'timestamp');
+        addMappingRow('4', 'method');
+        addMappingRow('5', 'path');
+    }
 }
 
 // 初始化时间格式卡片
@@ -218,30 +288,24 @@ function initTimeFormatCards() {
     if (!container) return;
     
     container.innerHTML = TIME_FORMAT_PRESETS.map(preset => `
-        <div class="time-format-card ${preset.id === 'nginx' ? 'selected' : ''}" 
+        <div class="time-format-card ${preset.id === 'nginx' ? 'active' : ''}" 
              data-format="${preset.format}"
              onclick="selectTimeFormat('${preset.format}', this)">
-            <div class="card-name">${preset.name}</div>
-            <div class="card-example">${preset.example}</div>
+            <div class="format-name">${preset.name}</div>
+            <div class="format-example">${preset.example}</div>
         </div>
     `).join('');
 }
 
 // 选择时间格式
 function selectTimeFormat(format, cardElement) {
-    // 更新隐藏输入框
     const input = document.getElementById('parser-time-format');
-    if (input) {
-        input.value = format;
-    }
+    if (input) input.value = format;
     
-    // 更新卡片样式
     document.querySelectorAll('.time-format-card').forEach(card => {
-        card.classList.remove('selected');
+        card.classList.remove('active');
     });
-    if (cardElement) {
-        cardElement.classList.add('selected');
-    }
+    if (cardElement) cardElement.classList.add('active');
     
     // 更新预览
     updateTimeFormatPreview(format);
@@ -316,34 +380,41 @@ function initTabs() {
 function initConfigTabs() {
     document.querySelectorAll('.config-tab').forEach(tab => {
         tab.addEventListener('click', () => {
-            // 移除所有活动状态
-            document.querySelectorAll('.config-tab').forEach(t => {
-                t.classList.remove('active');
-                t.style.background = '';
-                t.style.color = 'var(--text-secondary)';
-            });
-            document.querySelectorAll('.config-panel').forEach(p => {
-                p.style.display = 'none';
-            });
-            
-            // 激活当前标签
+            document.querySelectorAll('.config-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.config-panel').forEach(p => p.style.display = 'none');
             tab.classList.add('active');
-            tab.style.background = 'var(--primary-bg)';
-            tab.style.color = 'var(--primary)';
-            
             const configId = 'config-' + tab.dataset.config;
             const panel = document.getElementById(configId);
-            if (panel) {
-                panel.style.display = 'block';
-            }
+            if (panel) panel.style.display = 'block';
         });
     });
-    
-    // 初始化第一个为活动状态
-    const firstTab = document.querySelector('.config-tab.active');
-    if (firstTab) {
-        firstTab.style.background = 'var(--primary-bg)';
-        firstTab.style.color = 'var(--primary)';
+}
+
+// 调整数字输入值
+function adjustNumber(inputId, delta) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const current = parseInt(input.value) || 0;
+    const min = parseInt(input.min) || 0;
+    const max = parseInt(input.max) || Infinity;
+    const step = parseInt(input.step) || 1;
+    input.value = Math.max(min, Math.min(max, current + delta * step));
+}
+
+// 生成随机Token
+function generateToken() {
+    const token = 'tk_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    const input = document.getElementById('receiver-http-token');
+    if (input) input.value = token;
+}
+
+// 复制路径到剪贴板
+function copyPath() {
+    const pathText = document.getElementById('storage-path-text');
+    if (pathText) {
+        navigator.clipboard.writeText(pathText.textContent).then(() => {
+            alert('路径已复制到剪贴板');
+        });
     }
 }
 
@@ -358,19 +429,16 @@ function initUploadZone() {
     
     zone.addEventListener('dragover', (e) => {
         e.preventDefault();
-        zone.style.borderColor = 'var(--primary)';
-        zone.style.background = 'var(--primary-bg)';
+        zone.classList.add('dragover');
     });
     
     zone.addEventListener('dragleave', () => {
-        zone.style.borderColor = '';
-        zone.style.background = '';
+        zone.classList.remove('dragover');
     });
     
     zone.addEventListener('drop', (e) => {
         e.preventDefault();
-        zone.style.borderColor = '';
-        zone.style.background = '';
+        zone.classList.remove('dragover');
         handleFiles(e.dataTransfer.files);
     });
     
@@ -381,12 +449,15 @@ function initUploadZone() {
 
 // 处理文件上传
 async function handleFiles(files) {
-    const progressDiv = document.getElementById('upload-progress');
+    const progressSection = document.getElementById('upload-progress-section');
     const progressFill = document.getElementById('progress-fill');
-    const progressText = document.getElementById('progress-text');
+    const progressFilename = document.getElementById('progress-filename');
+    const progressPercent = document.getElementById('progress-percent');
+    const resultsSection = document.getElementById('upload-results-section');
     const resultsDiv = document.getElementById('upload-results');
     
-    progressDiv.style.display = 'block';
+    progressSection.style.display = 'block';
+    resultsSection.style.display = 'none';
     resultsDiv.innerHTML = '';
     let hasSuccess = false;
     
@@ -395,8 +466,10 @@ async function handleFiles(files) {
         const formData = new FormData();
         formData.append('file', file);
         
-        progressText.textContent = `正在上传 ${file.name}...`;
-        progressFill.style.width = `${(i / files.length) * 100}%`;
+        progressFilename.textContent = file.name;
+        const percent = Math.round((i / files.length) * 100);
+        progressPercent.textContent = `${percent}%`;
+        progressFill.style.width = `${percent}%`;
         
         try {
             const response = await fetch('/api/logs/import', {
@@ -412,42 +485,52 @@ async function handleFiles(files) {
                 result = { error: text || 'Unknown error' };
             }
             
-            if (response.ok) {
-                if (result.status === 'warning') {
-                    // 格式不匹配警告
-                    resultsDiv.innerHTML += `
-                        <div class="upload-warning">
-                            <i class="fas fa-exclamation-triangle"></i> 
-                            <strong>${file.name}</strong>: ${result.warning}
-                            <div style="margin-top: 8px; font-size: 12px; color: #666;">
-                                检测到格式: ${result.detected_format || 'unknown'} | 当前配置: ${result.current_format || 'unknown'}
-                            </div>
-                        </div>`;
-                } else if (result.lines > 0 && result.accepted === 0) {
-                    resultsDiv.innerHTML += `<div class="upload-error"><i class="fas fa-times-circle"></i> ${file.name}: 导入失败，请检查配置格式是否匹配</div>`;
-                } else {
-                    resultsDiv.innerHTML += `<div class="upload-success"><i class="fas fa-check-circle"></i> ${file.name}: 成功导入 ${result.lines} 条记录 (接受 ${result.accepted || result.lines} 条)</div>`;
-                    hasSuccess = true;
-                }
+            const resultItem = document.createElement('div');
+            resultItem.className = 'result-item';
+            
+            if (response.ok && result.lines > 0) {
+                resultItem.innerHTML = `
+                    <div class="result-icon"><i class="fas fa-check"></i></div>
+                    <div class="result-info">
+                        <div class="result-filename">${file.name}</div>
+                        <div class="result-detail">成功导入 ${result.lines} 条记录</div>
+                    </div>
+                    <div class="result-count">${result.lines}</div>
+                `;
+                hasSuccess = true;
             } else {
-                resultsDiv.innerHTML += `<div class="upload-error"><i class="fas fa-times-circle"></i> ${file.name}: ${result.error || '导入失败'}</div>`;
+                resultItem.classList.add('error');
+                resultItem.innerHTML = `
+                    <div class="result-icon"><i class="fas fa-times"></i></div>
+                    <div class="result-info">
+                        <div class="result-filename">${file.name}</div>
+                        <div class="result-detail">${result.error || '导入失败'}</div>
+                    </div>
+                `;
             }
+            resultsDiv.appendChild(resultItem);
         } catch (error) {
-            resultsDiv.innerHTML += `<div class="upload-error"><i class="fas fa-times-circle"></i> ${file.name}: ${error.message}</div>`;
+            const resultItem = document.createElement('div');
+            resultItem.className = 'result-item error';
+            resultItem.innerHTML = `
+                <div class="result-icon"><i class="fas fa-times"></i></div>
+                <div class="result-info">
+                    <div class="result-filename">${file.name}</div>
+                    <div class="result-detail">${error.message}</div>
+                </div>
+            `;
+            resultsDiv.appendChild(resultItem);
         }
     }
     
     progressFill.style.width = '100%';
-    progressText.textContent = hasSuccess ? '上传完成' : '上传失败';
+    progressPercent.textContent = '100%';
+    resultsSection.style.display = 'block';
     
     // 如果导入成功，刷新数据
     if (hasSuccess && currentTab === 'dashboard') {
         setTimeout(() => loadDashboard(), 500);
     }
-    
-    setTimeout(() => {
-        progressDiv.style.display = 'none';
-    }, 3000);
 }
 
 // 加载仪表板数据
@@ -808,9 +891,12 @@ function formatTime(timeStr) {
 async function queryLogs() {
     const startTime = document.getElementById('filter-start-time').value;
     const endTime = document.getElementById('filter-end-time').value;
-    const methods = Array.from(document.getElementById('filter-method').selectedOptions).map(o => o.value);
-    const statusCodes = document.getElementById('filter-status').value.split(',').filter(s => s);
+    const methods = Array.from(document.querySelectorAll('#filter-method .method-tag.active')).map(btn => btn.dataset.value);
+    const statusCodes = Array.from(document.querySelectorAll('#filter-status .status-tag.active')).flatMap(btn => btn.dataset.value.split(','));
     const keyword = document.getElementById('filter-keyword').value;
+    
+    // 显示已选筛选条件
+    updateActiveFilters({ startTime, endTime, methods, statusCodes, keyword });
     
     const params = new URLSearchParams();
     if (startTime) params.append('start_time', new Date(startTime).toISOString());
@@ -846,11 +932,12 @@ function renderLogsTable(logs) {
     
     logs.forEach(log => {
         const row = document.createElement('tr');
+        const statusClass = getStatusCodeClass(log.status_code);
         row.innerHTML = `
             <td>${new Date(log.timestamp).toLocaleString()}</td>
-            <td>${log.method || '-'}</td>
+            <td><span class="method-badge method-${log.method}">${log.method || '-'}</span></td>
             <td class="path-cell" title="${log.path || '-'}">${truncate(log.path, 30)}</td>
-            <td><span class="status-tag status-${log.status_code}">${log.status_code || '-'}</span></td>
+            <td><span class="status-badge ${statusClass}">${log.status_code || '-'}</span></td>
             <td>${log.response_time ? log.response_time + 'ms' : '-'}</td>
             <td>${log.client_ip || '-'}</td>
             <td>
@@ -913,6 +1000,116 @@ async function deleteLog(id) {
     } catch (error) {
         console.error('Delete error:', error);
         alert('删除失败: ' + error.message);
+    }
+}
+
+// 选择导出格式
+function selectExportFormat(format) {
+    document.querySelectorAll('.export-format-card').forEach(card => {
+        card.classList.remove('active');
+    });
+    document.querySelector(`.export-format-card[data-format="${format}"]`)?.classList.add('active');
+    document.getElementById('export-format').value = format;
+    
+    // 更新文件名后缀
+    const extMap = { excel: '.xlsx', csv: '.csv', json: '.json' };
+    document.getElementById('filename-ext').textContent = extMap[format] || '.xlsx';
+    
+    // 格式变化时更新预览（文件大小估算会变）
+    updateExportPreview();
+}
+
+// 切换导出状态筛选
+function toggleExportStatus(btn) {
+    btn.classList.toggle('active');
+    updateExportStatusFilter();
+}
+
+// 更新导出状态筛选值
+function updateExportStatusFilter() {
+    const activeBtns = document.querySelectorAll('.status-filter-btn.active');
+    const statuses = Array.from(activeBtns).map(btn => btn.dataset.status).join(',');
+    document.getElementById('export-status').value = statuses;
+    updateExportPreview(); // 筛选变化时更新预览
+}
+
+// 更新导出预览
+async function updateExportPreview() {
+    const startTime = document.getElementById('export-start-time').value;
+    const endTime = document.getElementById('export-end-time').value;
+    const statusCodes = document.getElementById('export-status').value;
+    const format = document.getElementById('export-format').value;
+    
+    const countEl = document.getElementById('export-count');
+    const sizeEl = document.getElementById('export-size');
+    const rangeEl = document.getElementById('export-range');
+    
+    // 构建查询参数
+    const params = new URLSearchParams();
+    params.append('limit', '1'); // 只需要总数
+    if (startTime) params.append('start_time', new Date(startTime).toISOString());
+    if (endTime) params.append('end_time', new Date(endTime).toISOString());
+    if (statusCodes) {
+        statusCodes.split(',').forEach(code => {
+            code.split(',').forEach(c => params.append('status_codes', c.trim()));
+        });
+    }
+    
+    try {
+        const response = await fetch(`/api/logs?${params}`);
+        const result = await response.json();
+        const total = result.total || 0;
+        
+        // 更新条数
+        countEl.textContent = total.toLocaleString() + ' 条';
+        
+        // 估算文件大小（粗略估计）
+        let bytesPerRecord;
+        switch(format) {
+            case 'json':
+                bytesPerRecord = 300; // JSON格式较大
+                break;
+            case 'excel':
+                bytesPerRecord = 200; // Excel适中
+                break;
+            case 'csv':
+                bytesPerRecord = 150; // CSV较小
+                break;
+            default:
+                bytesPerRecord = 200;
+        }
+        
+        const totalBytes = total * bytesPerRecord;
+        let sizeText;
+        if (totalBytes < 1024) {
+            sizeText = totalBytes + ' B';
+        } else if (totalBytes < 1024 * 1024) {
+            sizeText = (totalBytes / 1024).toFixed(1) + ' KB';
+        } else if (totalBytes < 1024 * 1024 * 1024) {
+            sizeText = (totalBytes / (1024 * 1024)).toFixed(1) + ' MB';
+        } else {
+            sizeText = (totalBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+        }
+        sizeEl.textContent = sizeText;
+        
+        // 更新时间范围显示
+        if (startTime && endTime) {
+            const start = new Date(startTime).toLocaleDateString();
+            const end = new Date(endTime).toLocaleDateString();
+            rangeEl.textContent = `${start} 至 ${end}`;
+        } else if (startTime) {
+            rangeEl.textContent = `${new Date(startTime).toLocaleDateString()} 之后`;
+        } else if (endTime) {
+            rangeEl.textContent = `${new Date(endTime).toLocaleDateString()} 之前`;
+        } else {
+            rangeEl.textContent = '全部';
+        }
+        
+    } catch (error) {
+        console.error('Failed to update export preview:', error);
+        countEl.textContent = '-';
+        sizeEl.textContent = '-';
+        rangeEl.textContent = '-';
     }
 }
 
@@ -1054,12 +1251,323 @@ function closeModal() {
     document.getElementById('log-modal').classList.remove('active');
 }
 
+// 切换请求方法选择
+function toggleMethod(btn) {
+    btn.classList.toggle('active');
+}
+
+// 切换状态码选择
+function toggleStatus(btn) {
+    btn.classList.toggle('active');
+}
+
+// 添加字段映射行
+function addMappingRow(index = '', field = '') {
+    const list = document.getElementById('mapping-list');
+    if (!list) return;
+    
+    const row = document.createElement('div');
+    row.className = 'mapping-row';
+    row.innerHTML = `
+        <span class="field-index">${index || list.children.length}</span>
+        <i class="fas fa-arrow-right field-arrow"></i>
+        <input type="text" class="field-name" placeholder="字段名" value="${field}">
+        <button type="button" class="btn-remove" onclick="removeMappingRow(this)">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    list.appendChild(row);
+    updateMappingJSON();
+}
+
+// 删除字段映射行
+function removeMappingRow(btn) {
+    btn.closest('.mapping-row').remove();
+    updateMappingIndices();
+    updateMappingJSON();
+}
+
+// 更新字段映射索引
+function updateMappingIndices() {
+    const rows = document.querySelectorAll('#mapping-list .mapping-row');
+    rows.forEach((row, index) => {
+        row.querySelector('.field-index').textContent = index;
+    });
+}
+
+// 更新字段映射JSON
+function updateMappingJSON() {
+    const rows = document.querySelectorAll('#mapping-list .mapping-row');
+    const mapping = {};
+    rows.forEach(row => {
+        const index = row.querySelector('.field-index').textContent;
+        const field = row.querySelector('.field-name').value.trim();
+        if (field) mapping[index] = field;
+    });
+    const textarea = document.getElementById('parser-mapping');
+    if (textarea) textarea.value = JSON.stringify(mapping, null, 2);
+}
+
+// 添加清洗规则
+function addCleanRule() {
+    const list = document.getElementById('clean-rules-list');
+    if (!list) return;
+    
+    const row = document.createElement('div');
+    row.className = 'rule-row';
+    row.innerHTML = `
+        <select onchange="updateCleanRulesJSON()">
+            <option value="">选择字段</option>
+            <option value="client_ip">客户端IP</option>
+            <option value="method">请求方法</option>
+            <option value="path">请求路径</option>
+            <option value="status_code">状态码</option>
+            <option value="user_agent">User-Agent</option>
+        </select>
+        <select onchange="updateCleanRulesJSON()">
+            <option value="">选择操作</option>
+            <option value="trim">去除空格</option>
+            <option value="lower">转小写</option>
+            <option value="upper">转大写</option>
+            <option value="replace">替换</option>
+        </select>
+        <input type="text" placeholder="参数（可选）" oninput="updateCleanRulesJSON()">
+        <button type="button" class="btn-remove" onclick="removeRule(this, 'clean')">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    list.appendChild(row);
+    updateCleanRulesJSON();
+}
+
+// 添加过滤规则
+function addFilterRule() {
+    const list = document.getElementById('filter-rules-list');
+    if (!list) return;
+    
+    const row = document.createElement('div');
+    row.className = 'rule-row';
+    row.innerHTML = `
+        <select onchange="updateFilterRulesJSON()">
+            <option value="">选择字段</option>
+            <option value="client_ip">客户端IP</option>
+            <option value="method">请求方法</option>
+            <option value="path">请求路径</option>
+            <option value="status_code">状态码</option>
+            <option value="response_time">响应时间</option>
+        </select>
+        <select onchange="updateFilterRulesJSON()">
+            <option value="">选择条件</option>
+            <option value="eq">等于</option>
+            <option value="ne">不等于</option>
+            <option value="gt">大于</option>
+            <option value="lt">小于</option>
+            <option value="contains">包含</option>
+            <option value="regex">正则匹配</option>
+        </select>
+        <input type="text" placeholder="值" oninput="updateFilterRulesJSON()">
+        <button type="button" class="btn-remove" onclick="removeRule(this, 'filter')">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    list.appendChild(row);
+    updateFilterRulesJSON();
+}
+
+// 删除规则行
+function removeRule(btn, type) {
+    btn.closest('.rule-row').remove();
+    if (type === 'clean') updateCleanRulesJSON();
+    else updateFilterRulesJSON();
+}
+
+// 更新清洗规则JSON
+function updateCleanRulesJSON() {
+    const rows = document.querySelectorAll('#clean-rules-list .rule-row');
+    const rules = [];
+    rows.forEach(row => {
+        const selects = row.querySelectorAll('select');
+        const input = row.querySelector('input');
+        if (selects[0].value && selects[1].value) {
+            rules.push({
+                field: selects[0].value,
+                operation: selects[1].value,
+                value: input.value
+            });
+        }
+    });
+    const textarea = document.getElementById('processor-clean-rules');
+    if (textarea) textarea.value = JSON.stringify(rules, null, 2);
+}
+
+// 更新过滤规则JSON
+function updateFilterRulesJSON() {
+    const rows = document.querySelectorAll('#filter-rules-list .rule-row');
+    const rules = [];
+    rows.forEach(row => {
+        const selects = row.querySelectorAll('select');
+        const input = row.querySelector('input');
+        if (selects[0].value && selects[1].value) {
+            rules.push({
+                field: selects[0].value,
+                operator: selects[1].value,
+                value: input.value
+            });
+        }
+    });
+    const textarea = document.getElementById('processor-filter-rules');
+    if (textarea) textarea.value = JSON.stringify(rules, null, 2);
+}
+
+// 初始化字段映射列表
+function initMappingList(mapping) {
+    const list = document.getElementById('mapping-list');
+    if (!list) return;
+    list.innerHTML = '';
+    
+    Object.entries(mapping).forEach(([index, field]) => {
+        const row = document.createElement('div');
+        row.className = 'mapping-row';
+        row.innerHTML = `
+            <span class="field-index">${index}</span>
+            <i class="fas fa-arrow-right field-arrow"></i>
+            <input type="text" class="field-name" placeholder="字段名" value="${field}" oninput="updateMappingJSON()">
+            <button type="button" class="btn-remove" onclick="removeMappingRow(this)">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        list.appendChild(row);
+    });
+}
+
+// 初始化清洗规则列表
+function initCleanRulesList(rules) {
+    const list = document.getElementById('clean-rules-list');
+    if (!list) return;
+    list.innerHTML = '';
+    
+    if (rules.length === 0) return;
+    
+    rules.forEach(rule => {
+        const row = document.createElement('div');
+        row.className = 'rule-row';
+        row.innerHTML = `
+            <select onchange="updateCleanRulesJSON()">
+                <option value="">选择字段</option>
+                <option value="client_ip" ${rule.field === 'client_ip' ? 'selected' : ''}>客户端IP</option>
+                <option value="method" ${rule.field === 'method' ? 'selected' : ''}>请求方法</option>
+                <option value="path" ${rule.field === 'path' ? 'selected' : ''}>请求路径</option>
+                <option value="status_code" ${rule.field === 'status_code' ? 'selected' : ''}>状态码</option>
+                <option value="user_agent" ${rule.field === 'user_agent' ? 'selected' : ''}>User-Agent</option>
+            </select>
+            <select onchange="updateCleanRulesJSON()">
+                <option value="">选择操作</option>
+                <option value="trim" ${rule.operation === 'trim' ? 'selected' : ''}>去除空格</option>
+                <option value="lower" ${rule.operation === 'lower' ? 'selected' : ''}>转小写</option>
+                <option value="upper" ${rule.operation === 'upper' ? 'selected' : ''}>转大写</option>
+                <option value="replace" ${rule.operation === 'replace' ? 'selected' : ''}>替换</option>
+            </select>
+            <input type="text" placeholder="参数（可选）" value="${rule.value || ''}" oninput="updateCleanRulesJSON()">
+            <button type="button" class="btn-remove" onclick="removeRule(this, 'clean')">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        list.appendChild(row);
+    });
+}
+
+// 初始化过滤规则列表
+function initFilterRulesList(rules) {
+    const list = document.getElementById('filter-rules-list');
+    if (!list) return;
+    list.innerHTML = '';
+    
+    if (rules.length === 0) return;
+    
+    rules.forEach(rule => {
+        const row = document.createElement('div');
+        row.className = 'rule-row';
+        row.innerHTML = `
+            <select onchange="updateFilterRulesJSON()">
+                <option value="">选择字段</option>
+                <option value="client_ip" ${rule.field === 'client_ip' ? 'selected' : ''}>客户端IP</option>
+                <option value="method" ${rule.field === 'method' ? 'selected' : ''}>请求方法</option>
+                <option value="path" ${rule.field === 'path' ? 'selected' : ''}>请求路径</option>
+                <option value="status_code" ${rule.field === 'status_code' ? 'selected' : ''}>状态码</option>
+                <option value="response_time" ${rule.field === 'response_time' ? 'selected' : ''}>响应时间</option>
+            </select>
+            <select onchange="updateFilterRulesJSON()">
+                <option value="">选择条件</option>
+                <option value="eq" ${rule.operator === 'eq' ? 'selected' : ''}>等于</option>
+                <option value="ne" ${rule.operator === 'ne' ? 'selected' : ''}>不等于</option>
+                <option value="gt" ${rule.operator === 'gt' ? 'selected' : ''}>大于</option>
+                <option value="lt" ${rule.operator === 'lt' ? 'selected' : ''}>小于</option>
+                <option value="contains" ${rule.operator === 'contains' ? 'selected' : ''}>包含</option>
+                <option value="regex" ${rule.operator === 'regex' ? 'selected' : ''}>正则匹配</option>
+            </select>
+            <input type="text" placeholder="值" value="${rule.value || ''}" oninput="updateFilterRulesJSON()">
+            <button type="button" class="btn-remove" onclick="removeRule(this, 'filter')">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        list.appendChild(row);
+    });
+}
+
+// 获取状态码颜色类
+function getStatusCodeClass(statusCode) {
+    if (!statusCode) return '';
+    const code = parseInt(statusCode);
+    if (code >= 200 && code < 300) return 'status-success';
+    if (code >= 300 && code < 400) return 'status-redirect';
+    if (code >= 400 && code < 500) return 'status-client-error';
+    if (code >= 500 && code < 600) return 'status-server-error';
+    return '';
+}
+
+// 更新已选筛选条件显示
+function updateActiveFilters(filters) {
+    const container = document.getElementById('active-filters');
+    const list = document.getElementById('active-filters-list');
+    const { startTime, endTime, methods, statusCodes, keyword } = filters;
+    
+    const tags = [];
+    
+    if (startTime) {
+        tags.push(`<span class="active-filter-tag"><i class="fas fa-calendar"></i> 开始: ${new Date(startTime).toLocaleString()}</span>`);
+    }
+    if (endTime) {
+        tags.push(`<span class="active-filter-tag"><i class="fas fa-calendar"></i> 结束: ${new Date(endTime).toLocaleString()}</span>`);
+    }
+    if (methods.length > 0) {
+        tags.push(`<span class="active-filter-tag"><i class="fas fa-code-branch"></i> 方法: ${methods.join(', ')}</span>`);
+    }
+    if (statusCodes.length > 0) {
+        const statusNames = [];
+        if (statusCodes.includes('200')) statusNames.push('200成功');
+        if (statusCodes.includes('301') || statusCodes.includes('302')) statusNames.push('30x重定向');
+        if (statusCodes.includes('400') || statusCodes.includes('401') || statusCodes.includes('403') || statusCodes.includes('404')) statusNames.push('40x客户端错误');
+        if (statusCodes.includes('500') || statusCodes.includes('502') || statusCodes.includes('503')) statusNames.push('50x服务端错误');
+        tags.push(`<span class="active-filter-tag"><i class="fas fa-shield-alt"></i> 状态: ${statusNames.join(', ')}</span>`);
+    }
+    if (keyword) {
+        tags.push(`<span class="active-filter-tag"><i class="fas fa-search"></i> 关键词: ${keyword}</span>`);
+    }
+    
+    if (tags.length > 0) {
+        list.innerHTML = tags.join('');
+        container.style.display = 'flex';
+    } else {
+        container.style.display = 'none';
+    }
+}
+
 // 重置筛选
 function resetFilters() {
     document.getElementById('filter-start-time').value = '';
     document.getElementById('filter-end-time').value = '';
-    document.getElementById('filter-method').selectedIndex = -1;
-    document.getElementById('filter-status').value = '';
+    document.querySelectorAll('#filter-method .method-tag').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('#filter-status .status-tag').forEach(btn => btn.classList.remove('active'));
     document.getElementById('filter-keyword').value = '';
     currentPage = 1;
     queryLogs();
@@ -1107,8 +1615,21 @@ async function loadConfig() {
         const config = await response.json();
         
         // 填充表单
-        document.getElementById('parser-format').value = config.parser?.format || 'nginx';
-        document.getElementById('parser-delimiter').value = config.parser?.delimiter || ' ';
+        const format = config.parser?.format || 'nginx';
+        document.getElementById('parser-format').value = format;
+        
+        // 同步格式卡片UI
+        document.querySelectorAll('.format-card').forEach(card => {
+            card.classList.toggle('active', card.dataset.format === format);
+        });
+        
+        const delimiter = config.parser?.delimiter || ' ';
+        document.getElementById('parser-delimiter').value = delimiter;
+        
+        // 同步分隔符按钮UI
+        document.querySelectorAll('.delimiter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.value === delimiter);
+        });
         
         // 处理时间格式
         const timeFormat = config.parser?.time_format || '02/Jan/2006:15:04:05 -0700';
@@ -1121,28 +1642,39 @@ async function loadConfig() {
         const cards = document.querySelectorAll('.time-format-card');
         let matched = false;
         cards.forEach(card => {
-            card.classList.remove('selected');
+            card.classList.remove('active');
             if (card.dataset.format === timeFormat) {
-                card.classList.add('selected');
+                card.classList.add('active');
                 matched = true;
             }
         });
         
         // 如果没有匹配的预设，默认选中第一个
         if (!matched && cards.length > 0) {
-            cards[0].classList.add('selected');
+            cards[0].classList.add('active');
         }
         
         // 更新预览
         updateTimeFormatPreview(timeFormat);
         
-        document.getElementById('parser-mapping').value = JSON.stringify(config.parser?.field_mapping || {}, null, 2);
+        // 初始化字段映射可视化编辑器
+        const fieldMapping = config.parser?.field_mapping || { "0": "client_ip", "3": "timestamp", "4": "method", "5": "path" };
+        document.getElementById('parser-mapping').value = JSON.stringify(fieldMapping, null, 2);
+        initMappingList(fieldMapping);
         
         document.getElementById('processor-workers').value = config.processor?.worker_count || 10;
         document.getElementById('processor-batch-size').value = config.processor?.batch_size || 100;
         document.getElementById('processor-timeout').value = config.processor?.batch_timeout || 1000;
-        document.getElementById('processor-clean-rules').value = JSON.stringify(config.processor?.clean_rules || [], null, 2);
-        document.getElementById('processor-filter-rules').value = JSON.stringify(config.processor?.filter_rules || [], null, 2);
+        
+        // 初始化清洗规则可视化编辑器
+        const cleanRules = config.processor?.clean_rules || [];
+        document.getElementById('processor-clean-rules').value = JSON.stringify(cleanRules, null, 2);
+        initCleanRulesList(cleanRules);
+        
+        // 初始化过滤规则可视化编辑器
+        const filterRules = config.processor?.filter_rules || [];
+        document.getElementById('processor-filter-rules').value = JSON.stringify(filterRules, null, 2);
+        initFilterRulesList(filterRules);
         
         document.getElementById('receiver-tcp').checked = config.receiver?.tcp_enabled ?? true;
         document.getElementById('receiver-tcp-port').value = config.receiver?.tcp_port || 9000;
@@ -1153,7 +1685,14 @@ async function loadConfig() {
         document.getElementById('receiver-http-token').value = config.receiver?.http_auth_token || '';
         document.getElementById('receiver-http-ips').value = (config.receiver?.http_allowed_ips || []).join(',');
         document.getElementById('receiver-http-rate').value = config.receiver?.http_rate_limit || 0;
-        document.getElementById('receiver-buffer').value = config.receiver?.buffer_size || 8192;
+        
+        const bufferSize = config.receiver?.buffer_size || 16384;
+        document.getElementById('receiver-buffer').value = bufferSize;
+        
+        // 同步缓冲区按钮UI
+        document.querySelectorAll('.buffer-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.value) === bufferSize);
+        });
         
         document.getElementById('storage-type').value = config.storage?.type || 'sqlite';
         
