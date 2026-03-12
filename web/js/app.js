@@ -92,7 +92,7 @@ const FORMAT_TIME_MAPPING = {
 const NUMBER_INPUT_LIMITS = {
     'processor-workers': { min: 1, max: 100 },
     'processor-batch-size': { min: 10, max: 10000 },
-    'processor-timeout': { min: 100, max: 60000 },
+    'processor-timeout': { min: 10, max: 60000 },
     'receiver-tcp-port': { min: 1, max: 65535 },
     'receiver-udp-port': { min: 1, max: 65535 },
     'receiver-http-port': { min: 1, max: 65535 },
@@ -1727,55 +1727,62 @@ async function saveConfig() {
             port: 8080
         },
         parser: {
-            format: document.getElementById('parser-format').value,
-            delimiter: document.getElementById('parser-delimiter').value,
-            time_format: document.getElementById('parser-time-format').value,
-            field_mapping: JSON.parse(document.getElementById('parser-mapping').value || '{}'),
+            format: document.getElementById('parser-format')?.value || 'nginx',
+            delimiter: document.getElementById('parser-delimiter')?.value || ' ',
+            time_format: document.getElementById('parser-time-format')?.value || '02/Jan/2006:15:04:05 -0700',
+            field_mapping: JSON.parse(document.getElementById('parser-mapping')?.value || '{}'),
             parse_user_agent: false
         },
         processor: {
-            worker_count: parseInt(document.getElementById('processor-workers').value),
-            batch_size: parseInt(document.getElementById('processor-batch-size').value),
-            batch_timeout: parseInt(document.getElementById('processor-timeout').value),
-            clean_rules: JSON.parse(document.getElementById('processor-clean-rules').value || '[]'),
-            filter_rules: JSON.parse(document.getElementById('processor-filter-rules').value || '[]')
+            worker_count: parseInt(document.getElementById('processor-workers')?.value) || 10,
+            batch_size: parseInt(document.getElementById('processor-batch-size')?.value) || 100,
+            batch_timeout: parseInt(document.getElementById('processor-timeout')?.value) || 1000,
+            clean_rules: JSON.parse(document.getElementById('processor-clean-rules')?.value || '[]'),
+            filter_rules: JSON.parse(document.getElementById('processor-filter-rules')?.value || '[]')
         },
         receiver: {
-            tcp_enabled: document.getElementById('receiver-tcp').checked,
-            tcp_port: parseInt(document.getElementById('receiver-tcp-port').value),
-            udp_enabled: document.getElementById('receiver-udp').checked,
-            udp_port: parseInt(document.getElementById('receiver-udp-port').value),
-            http_enabled: document.getElementById('receiver-http').checked,
-            http_port: parseInt(document.getElementById('receiver-http-port').value),
-            http_auth_token: document.getElementById('receiver-http-token').value,
-            http_allowed_ips: document.getElementById('receiver-http-ips').value.split(',').map(s => s.trim()).filter(s => s),
-            http_rate_limit: parseInt(document.getElementById('receiver-http-rate').value) || 0,
-            buffer_size: parseInt(document.getElementById('receiver-buffer').value),
+            tcp_enabled: document.getElementById('receiver-tcp')?.checked ?? true,
+            tcp_port: parseInt(document.getElementById('receiver-tcp-port')?.value) || 9000,
+            udp_enabled: document.getElementById('receiver-udp')?.checked ?? true,
+            udp_port: parseInt(document.getElementById('receiver-udp-port')?.value) || 9001,
+            http_enabled: document.getElementById('receiver-http')?.checked ?? true,
+            http_port: parseInt(document.getElementById('receiver-http-port')?.value) || 9002,
+            http_auth_token: document.getElementById('receiver-http-token')?.value || '',
+            http_allowed_ips: (document.getElementById('receiver-http-ips')?.value || '').split(',').map(s => s.trim()).filter(s => s),
+            http_rate_limit: parseInt(document.getElementById('receiver-http-rate')?.value) || 0,
+            buffer_size: parseInt(document.getElementById('receiver-buffer')?.value) || 65536,
             file_watcher_enabled: false,
             watch_paths: [],
             max_connections: 1000
         },
         storage: {
-            type: document.getElementById('storage-type').value,
-            db_path: document.getElementById('storage-db-path').value,
-            retention_hours: parseInt(document.getElementById('storage-retention').value)
+            type: document.getElementById('storage-type')?.value || 'sqlite',
+            db_path: document.getElementById('storage-db-path')?.value || './data/logs.db',
+            retention_hours: parseInt(document.getElementById('storage-retention')?.value) || 720
         }
     };
     
     try {
+        console.log('[Config] 正在保存配置:', config);
         const response = await fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });
         
+        console.log('[Config] 响应状态:', response.status);
+        
         if (response.ok) {
+            const result = await response.json();
+            console.log('[Config] 保存成功:', result);
             alert('配置保存成功！');
         } else {
-            const result = await response.json();
-            alert('保存失败: ' + result.error);
+            const result = await response.json().catch(() => ({ error: '未知错误' }));
+            console.error('[Config] 保存失败:', result);
+            alert('保存失败: ' + (result.error || '服务器错误'));
         }
     } catch (error) {
+        console.error('[Config] 请求异常:', error);
         alert('保存失败: ' + error.message);
     }
 }

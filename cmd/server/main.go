@@ -74,9 +74,16 @@ func main() {
 	parserCfg := cfg.GetParserConfig()
 	logParser := parser.NewLogParser(parserCfg)
 
-	// 初始化处理器
+	// 初始化处理器（使用弹性处理器，支持背压和溢出队列）
 	processorCfg := cfg.GetProcessorConfig()
-	proc := processor.NewProcessor(processorCfg, logParser, store)
+	var proc processor.ProcessorInterface
+	rp, err := processor.NewResilientProcessor(processorCfg, logParser, store, "./temp/overflow")
+	if err != nil {
+		log.Printf("[WARN] 弹性处理器初始化失败，回退到普通处理器: %v", err)
+		proc = processor.NewProcessor(processorCfg, logParser, store)
+	} else {
+		proc = rp
+	}
 	proc.Start()
 
 	// 初始化接收器
@@ -159,7 +166,7 @@ func main() {
 }
 
 // shutdown 优雅关闭系统
-func shutdown(ctx context.Context, srv *server.Server, recv *receiver.Manager, proc *processor.Processor, store storage.Storage) {
+func shutdown(ctx context.Context, srv *server.Server, recv *receiver.Manager, proc processor.ProcessorInterface, store storage.Storage) {
 	// 使用带超时的上下文
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

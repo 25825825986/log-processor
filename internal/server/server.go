@@ -2,6 +2,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -36,13 +37,13 @@ type Server struct {
 	router         *gin.Engine
 	storage        storage.Storage
 	parser         *parser.LogParser
-	processor      *processor.Processor
+	processor      processor.ProcessorInterface
 	receiver       *receiver.Manager
 	exportManager  *exporter.ExportManager
 }
 
 // NewServer 创建新服务器
-func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Processor, recv *receiver.Manager, logFile *os.File, configPath string) *Server {
+func NewServer(cfg *config.Config, store storage.Storage, proc processor.ProcessorInterface, recv *receiver.Manager, logFile *os.File, configPath string) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -137,30 +138,52 @@ func (s *Server) getConfig(c *gin.Context) {
 		"processor": cfg.Processor,
 		"storage": cfg.Storage,
 		"receiver": gin.H{
-			"tcp_enabled":       cfg.Receiver.TCPEnabled,
-			"tcp_port":          cfg.Receiver.TCPPort,
-			"udp_enabled":       cfg.Receiver.UDPEnabled,
-			"udp_port":          cfg.Receiver.UDPPort,
-			"http_enabled":      cfg.Receiver.HTTPEnabled,
-			"http_port":         cfg.Receiver.HTTPPort,
-			"http_auth_token":   cfg.Receiver.HTTPAuthToken != "", // 只返回是否启用，不返回值
-			"http_allowed_ips":  cfg.Receiver.HTTPAllowedIPs,
-			"http_rate_limit":   cfg.Receiver.HTTPRateLimit,
-			"buffer_size":       cfg.Receiver.BufferSize,
+			"tcp_enabled":         cfg.Receiver.TCPEnabled,
+			"tcp_port":            cfg.Receiver.TCPPort,
+			"udp_enabled":         cfg.Receiver.UDPEnabled,
+			"udp_port":            cfg.Receiver.UDPPort,
+			"http_enabled":        cfg.Receiver.HTTPEnabled,
+			"http_port":           cfg.Receiver.HTTPPort,
+			"http_auth_token":     cfg.Receiver.HTTPAuthToken,  // 返回实际值（为空则不启用）
+			"http_allowed_ips":    cfg.Receiver.HTTPAllowedIPs,
+			"http_rate_limit":     cfg.Receiver.HTTPRateLimit,
+			"http_max_body_size":  cfg.Receiver.HTTPMaxBodySize,
+			"buffer_size":         cfg.Receiver.BufferSize,
+			"file_watcher_enabled": cfg.Receiver.FileWatcherEnabled,
+			"watch_paths":         cfg.Receiver.WatchPaths,
+			"max_connections":     cfg.Receiver.MaxConnections,
 		},
 	})
 }
 
 // updateConfig 更新配置
 func (s *Server) updateConfig(c *gin.Context) {
+	// 使用 map 接收 JSON，避免直接绑定到带有 sync.RWMutex 的 Config 结构体
+	var jsonConfig map[string]interface{}
+	if err := c.ShouldBindJSON(&jsonConfig); err != nil {
+		log.Printf("[ERROR] 解析配置 JSON 失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "配置格式错误: " + err.Error()})
+		return
+	}
+	
+	// 将 map 转换为 JSON 再解析到 Config 结构体
+	jsonData, err := json.Marshal(jsonConfig)
+	if err != nil {
+		log.Printf("[ERROR] 序列化配置失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置处理失败"})
+		return
+	}
+	
 	var newConfig config.Config
-	if err := c.ShouldBindJSON(&newConfig); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := json.Unmarshal(jsonData, &newConfig); err != nil {
+		log.Printf("[ERROR] 解析配置结构失败: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "配置字段错误: " + err.Error()})
 		return
 	}
 
 	if err := s.config.Update(&newConfig); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[ERROR] 更新配置失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置更新失败: " + err.Error()})
 		return
 	}
 
@@ -509,10 +532,22 @@ func (s *Server) getExportFormats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"formats": formats})
 }
 
+// ProcessorWithResilient 支持容错统计的处理器接口
+type ProcessorWithResilient interface {
+	GetStats() map[string]interface{}
+	GetResilientStats() map[string]interface{}
+}
+
 // getStatus 获取系统状态（过滤敏感信息）
 func (s *Server) getStatus(c *gin.Context) {
 	cfg := s.config.Get()
 	stats := s.processor.GetStats()
+
+	// 尝试获取弹性处理器统计
+	var resilientStats map[string]interface{}
+	if rp, ok := interface{}(s.processor).(ProcessorWithResilient); ok {
+		resilientStats = rp.GetResilientStats()
+	}
 
 	// 只返回基本配置信息，过滤敏感字段
 	c.JSON(http.StatusOK, gin.H{
@@ -530,8 +565,10 @@ func (s *Server) getStatus(c *gin.Context) {
 			},
 			"storage": cfg.Storage,
 		},
-		"processor": stats,
-		"timestamp": time.Now(),
+		"processor":         stats,
+		"resilient":         resilientStats,
+		"resilient_enabled": resilientStats != nil,
+		"timestamp":         time.Now(),
 	})
 }
 

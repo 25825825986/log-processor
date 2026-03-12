@@ -452,7 +452,7 @@
                                     <label>批处理超时</label>
                                     <div class="number-input">
                                         <button type="button" onclick="adjustNumber('processor-timeout', -100)"><i class="fas fa-minus"></i></button>
-                                        <input type="number" id="processor-timeout" value="1000" min="100" max="60000" step="100">
+                                        <input type="number" id="processor-timeout" value="1000" min="10" max="60000" step="10">
                                         <button type="button" onclick="adjustNumber('processor-timeout', 100)"><i class="fas fa-plus"></i></button>
                                     </div>
                                     <div class="card-hint">最长等待时间（毫秒）</div>
@@ -703,10 +703,7 @@
                             <span>重置</span>
                         </button>
                     </div>
-                    <div class="config-status" id="config-status">
-                        <i class="fas fa-check-circle"></i>
-                        <span>所有更改已保存</span>
-                    </div>
+
                 </div>
             </section>
 

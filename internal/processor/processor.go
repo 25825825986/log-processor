@@ -28,6 +28,16 @@ type ProcessorStats struct {
 	ParseErrorCount int64 // 解析错误数
 }
 
+// ProcessorInterface 处理器接口
+type ProcessorInterface interface {
+	Start()
+	Stop()
+	Submit(line string) bool
+	UpdateConfig(cfg config.ProcessorConfig)
+	SetParser(parser Parser)
+	GetStats() map[string]interface{}
+}
+
 // Processor 数据处理器
 type Processor struct {
 	config      config.ProcessorConfig
