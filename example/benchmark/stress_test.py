@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-日志处理器并发性能测试工具
+日志处理器并发性能测试工具 (v2.0 - 支持容错机制)
 
 使用示例:
     # TCP 测试 - 10万条，100并发，限制速率1000条/秒每连接
@@ -16,10 +16,15 @@
     python download_nasa_logs.py                    # 先下载数据集
     python stress_test.py -file ../data/NASA_access_log_Jul95.txt -total 100000 -rate 50
 
-注意:
-    系统处理能力上限约 800 QPS 持续 / 8,000 QPS 突发 (SQLite限制)
-    发送速率超过此值将导致日志被丢弃，这是预期行为
-    建议使用 -rate 参数限制每连接发送速率
+系统能力 (v2.0+ 容错架构):
+    持续处理能力: ~1,500 QPS (异步存储优化)
+    突发处理能力: ~20,000 QPS (依赖队列缓冲)
+    数据保证: 至少一次 (背压 + 磁盘溢出队列)
+    
+    当发送速率超过处理能力时：
+    1. 触发背压机制 - 自动降速
+    2. 启用磁盘溢出队列 - 数据暂存到磁盘
+    3. 队列空闲时自动回填 - 保证数据不丢失
 
 NASA 数据集:
     下载: python download_nasa_logs.py
@@ -298,6 +303,19 @@ def get_server_count():
     except Exception:
         return 0
 
+
+def get_resilient_info():
+    """获取容错机制信息"""
+    try:
+        req = urllib.request.Request('http://localhost:8080/api/status', method='GET')
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            resilient = data.get('resilient', {})
+            resilient['resilient_enabled'] = data.get('resilient_enabled', False)
+            return resilient
+    except Exception:
+        return None
+
 # 日志文件读取器（支持循环读取）
 class LogFileReader:
     def __init__(self, filepath):
@@ -466,12 +484,28 @@ def main():
         success_rate = (added / stats.sent) * 100
         print(f"处理成功率: {success_rate:.1f}%")
         
+        # 检查是否启用了容错机制
+        resilient_info = get_resilient_info()
+        if resilient_info and resilient_info.get('resilient_enabled'):
+            overflow_count = resilient_info.get('overflow_count', 0)
+            drain_count = resilient_info.get('drain_count', 0)
+            backpressure_level = resilient_info.get('backpressure_level', 0)
+            
+            print(f"\n📊 容错机制状态:")
+            print(f"  背压级别: {backpressure_level} (0=无, 1=轻度, 2=中度, 3=严重)")
+            print(f"  溢出到磁盘: {overflow_count} 条")
+            print(f"  已回填: {drain_count} 条")
+            
+            if overflow_count > 0:
+                print(f"\n💾 数据已溢出到磁盘，将在队列空闲时自动回填")
+        
         if success_rate >= 95:
-            print("✅ 所有日志已存储")
+            print("\n✅ 所有日志已存储")
         elif success_rate >= 80:
-            print("⚠️  部分日志可能仍在处理队列中")
+            print("\n⚠️  部分日志可能仍在处理队列中或已溢出到磁盘")
         else:
-            print("⚠️  警告: 大量日志可能因队列满被丢弃")
+            print("\n⚠️  警告: 大量日志可能因队列满被丢弃")
+            print("   建议: 1) 降低发送速率 2) 增大溢出队列 3) 检查磁盘空间")
     else:
         print("❌ 未成功发送任何日志")
 

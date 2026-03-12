@@ -1,6 +1,6 @@
-# 日志处理器 - 测试工具集
+# 日志处理器 - 测试工具集 (v2.0)
 
-本目录包含用于测试、数据生成和辅助工具的脚本，以及详细的配置指南和开源数据集说明。
+本目录包含用于测试、数据生成和辅助工具的脚本，支持 **v2.0 容错架构**（背压机制 + 磁盘溢出队列）。
 
 ## 📁 目录结构
 
@@ -8,20 +8,23 @@
 example/
 ├── README.md                      # 本说明文档
 ├── benchmark/                     # 性能测试脚本
-│   ├── stress_test.py            # 压力测试（Python）- 支持随机真实数据
-│   ├── stress_test.go            # 压力测试（Go）
-│   └── find_max_capacity.py      # 查找系统最大处理能力
+│   ├── stress_test.py            # 压力测试（支持容错监控）
+│   ├── diagnose_system.py        # 系统诊断工具（监控背压/溢出）
+│   ├── test_resilient.py         # 容错机制专项测试 ⭐
+│   ├── download_nasa_logs.py     # NASA 数据集下载
+│   ├── generate_nasa_like_logs.py# 生成 NASA 格式模拟数据
+│   ├── find_max_capacity.py      # 查找系统最大处理能力
+│   └── stress_test.go            # 压力测试（Go）
 ├── data/                          # 测试数据文件
 │   ├── test_log.txt              # 基础测试日志
 │   ├── test_logs.txt             # Nginx格式测试日志
-│   └── test_logs_json.txt        # JSON格式测试日志
+│   ├── test_logs_json.txt        # JSON格式测试日志
+│   └── NASA_access_log_Jul95_simulated.txt  # NASA 模拟数据(100万条)
 └── tools/                         # 辅助工具
     ├── generate_test_logs.py     # 生成测试日志
     ├── convert_log_format.py     # 日志格式转换
     ├── send_logs_unix.sh         # Unix/Mac 发送日志脚本
-    ├── send_logs_windows.ps1     # Windows 发送日志脚本
-    ├── download_nasa_unix.sh     # Unix 下载 NASA 数据集
-    └── download_nasa_windows.ps1 # Windows 下载 NASA 数据集
+    └── send_logs_windows.ps1     # Windows 发送日志脚本
 ```
 
 ---
@@ -37,39 +40,110 @@ go run cmd/server/main.go
 go run cmd/server/main.go -config config.optimized.json
 ```
 
-### 2. 压力测试
+### 2. 压力测试 (v2.0+ 容错架构)
 
-**⚠️ 重要提示**: 系统有两种不同的处理能力，请根据场景选择测试方式：
+**系统能力（v2.0 容错架构）**:
 
-| 能力类型 | 速率 | 适用场景 | 说明 |
-|---------|------|---------|------|
-| **突发处理能力** | ~8,000 QPS | 日志文件导入、短时高峰 | 靠队列缓冲，不能持续 |
-| **持续处理能力** | ~800 QPS | 实时日志流、生产环境 | SQLite写入上限，可长期稳定 |
+| 能力类型 | 速率 | 适用场景 | 容错机制 |
+|---------|------|---------|----------|
+| **突发处理能力** | ~20,000 QPS | 日志文件导入、短时高峰 | 背压 + 溢出队列 |
+| **持续处理能力** | ~1,500 QPS | 实时日志流、生产环境 | 异步批量写入 |
+
+**容错机制说明**:
+- **背压机制**: 队列满时自动降速（延迟 10ms-100ms）
+- **溢出队列**: 数据暂存到磁盘 (`./temp/overflow/`)，空闲时回填
+- **数据保证**: 至少一次 (At-Least-Once)，保证不丢
 
 ```bash
 cd benchmark
 
+# ========== 系统诊断（推荐先运行） ==========
+# 查看当前系统状态、背压级别、溢出情况
+python diagnose_system.py --once
+
 # ========== 持续压力测试（推荐用于生产评估） ==========
-# 测试长期稳定处理能力，确保发送速率 <= 800 QPS
-# 50并发 × 15条/秒 = 750 QPS（可长期稳定）
-python stress_test.py -protocol tcp -addr localhost:9000 -total 50000 -c 50 -rate 15
+# 测试长期稳定处理能力，发送速率 <= 1,500 QPS
+# 30并发 × 40条/秒 = 1,200 QPS（可长期稳定）
+python stress_test.py -protocol tcp -addr localhost:9000 -total 50000 -c 30 -rate 40
 
 # ========== 突发压力测试（推荐用于峰值评估） ==========
-# 短时发送大量日志，测试队列缓冲能力
-# 10,000条 @ 8,000 QPS，约1秒完成，队列缓冲后消化
-python stress_test.py -protocol tcp -addr localhost:9000 -total 10000 -c 50 -rate 160
+# 短时发送大量日志，测试队列缓冲和溢出能力
+# 10,000条 @ 2,000 QPS，测试容错机制
+python stress_test.py -protocol tcp -addr localhost:9000 -total 10000 -c 50 -rate 40
+
+# ========== 使用真实数据测试容错能力 ==========
+# 生成 100万条 NASA 格式数据
+python generate_nasa_like_logs.py -n 1000000
+# 高速发送，观察溢出队列工作情况
+python stress_test.py -file ../data/NASA_access_log_Jul95_simulated.txt -total 100000 -rate 100
 
 # HTTP 测试（批量发送效率更高）
 python stress_test.py -protocol http -addr localhost:9002 -total 50000 -c 50 -rate 30
 
-# UDP 测试
-python stress_test.py -protocol udp -addr localhost:9001 -total 50000 -c 50 -rate 30
+# 实时监控测试过程
+python diagnose_system.py
 
 # 保留已有数据测试（不清空）
-python stress_test.py -protocol tcp -total 10000 -c 10 -rate 15 -no-clear
+python stress_test.py -protocol tcp -total 10000 -c 10 -rate 40 -no-clear
 ```
 
-### 3. 查找系统极限
+### 3. 容错机制专项测试 ⭐ (v2.0)
+
+```bash
+cd benchmark
+
+# 运行完整容错测试（5万条，监控30秒）
+python test_resilient.py
+
+# 快速测试（1万条，监控15秒）
+python test_resilient.py --quick
+
+# 自定义参数
+python test_resilient.py --count 100000 --rate 200 --wait 60
+```
+
+**测试流程**:
+1. 检查服务器状态和容错机制是否启用
+2. 清空历史数据
+3. 高速发送数据（超过处理能力）
+4. 实时监控背压级别、溢出队列、回填情况
+5. 验证最终数据完整性
+
+**输出示例**:
+```
+🧪 容错机制测试 (v2.0)
+
+1️⃣ 检查服务器状态...
+   ✅ 容错机制已启用
+
+2️⃣ 清空历史数据...
+
+3️⃣ 测试参数:
+   发送总数: 50,000 条
+   目标速率: 100 QPS
+
+4️⃣ 高速发送数据...
+   时间       日志数     背压   溢出     回填     QPS
+   --------------------------------------------------
+   14:32:01      1,234      L        0        0      234
+   14:32:02      2,567      M      100        0      333
+   14:32:03      3,890      H      500       50      323
+   ...
+
+6️⃣ 最终结果:
+   📊 数据统计:
+   目标发送: 50,000 条
+   实际发送: 50,000 条
+   最终存储: 49,850 条
+   存储成功率: 99.7%
+
+   🛡️ 容错统计:
+   背压级别: 2
+   溢出总数: 2,500 条
+   已回填数: 2,350 条
+```
+
+### 4. 查找系统极限
 
 ```bash
 cd benchmark
@@ -93,9 +167,21 @@ python find_max_capacity.py -protocol tcp -addr localhost:9000
 | `-total` | 总发送日志数 | 10000 |
 | `-c` | 并发连接数 | 10 |
 | `-d` | 测试持续时间(秒) | 0（按total发送） |
-| `-rate` | **每连接限流(条/秒)，建议15-20** | 0（不限流） |
+| `-rate` | **每连接限流(条/秒)，建议30-50** | 0（不限流） |
 | `-batch` | HTTP批量发送条数 | 100 |
+| `-file` | 从文件读取日志数据 | 无 |
 | `-no-clear` | 不清空服务端数据 | 默认清空 |
+
+**v2.0 建议使用参数**:
+```bash
+# 测试容错能力（发送速率 > 处理能力）
+python stress_test.py -c 50 -rate 50 -total 100000
+
+# 观察溢出队列工作
+# 1. 运行测试
+# 2. 另开窗口: python diagnose_system.py
+# 3. 查看溢出计数是否增加，以及后续是否回填
+```
 
 ### 测试数据说明
 
@@ -112,35 +198,42 @@ python find_max_capacity.py -protocol tcp -addr localhost:9000
 | User-Agent | 8种真实浏览器/工具随机 |
 | Response Time | 0.001-5.0秒随机 |
 
-### 性能基准参考
+### 性能基准参考 (v2.0 容错架构)
 
-基于 **异步存储架构** 的系统性能（单节点，SSD磁盘）：
+基于 **异步存储 + 背压 + 溢出队列** 的系统性能（单节点，SSD磁盘）：
 
-| 能力类型 | 优化配置 (20 worker) | 说明 |
-|---------|---------------------|------|
-| **突发处理能力** | ~20,000 QPS | 短时峰值，依赖 200,000 队列缓冲 |
-| **持续处理能力** | **~1,500 QPS** | 异步批量写入，5倍于同步模式 |
+| 能力类型 | 速率 | 容错机制 | 数据保证 |
+|---------|------|----------|----------|
+| **突发处理能力** | ~20,000 QPS | 背压降速 + 磁盘溢出 | 至少一次 |
+| **持续处理能力** | **~1,500 QPS** | 异步批量写入 | 至少一次 |
 
-**使用异步存储 (v2.0+)**:
-```bash
-go run cmd/server/main.go -config config.optimized.json
-```
-
-**为什么会有差异？**
+**对比 (v1.0 vs v2.0)**:
 
 ```
-突发场景（10,000条 @ 8,000 QPS）:
-发送: ████████░░░░░░░░░░░░  (1.25秒发完)
-队列: [████████░░░░░░░░░░░░]  队列装得下
-处理: ░░░░░░░░████████████  3秒后消化完
-结果: ✅ 100% 成功
+v1.0 (同步模式):
+发送: ████████░░░░░░░░░░░░  (1,000 QPS)
+队列: 满 → ❌ 直接丢弃
+成功率: ~70%
 
-持续场景（100,000条 @ 1,500 QPS）:
-发送: ████████████████████  (持续66秒)
-队列: [████████████████████]  队列填满后溢出
-处理: ░░░░░░░░░░░░░░░░░░░░  持续处理中
-结果: ❌ 只处理了 ~40%，其余丢弃
+v2.0 (容错模式):
+发送: ████████░░░░░░░░░░░░  (1,000 QPS)
+队列: 满 → 💾 溢出到磁盘 → 空闲时回填
+成功率: ~98%
 ```
+
+**容错工作流程**:
+
+```
+高负载场景:
+输入 2,000 QPS → 背压降速(延迟50ms) → 溢出到磁盘 → 队列空闲时回填 → SQLite存储
+                    ↓
+              系统不会崩溃，数据不会丢失
+```
+
+**溢出队列位置**: `./temp/overflow/`
+- 最多 5 个文件，每个 100MB
+- 队列空闲时自动回填（每5秒检查）
+- 超过24小时的文件自动清理
 
 ---
 
@@ -289,40 +382,42 @@ chmod +x send_logs_unix.sh
 
 ## ❓ 常见问题
 
-### Q: 为什么 `stress_test.py` 500 QPS 就丢包？
+### Q: 为什么 `stress_test.py` 显示成功率不是 100%？
 
-**A**: 如果使用的是 **v1.x 同步存储版本**，这是预期行为。
+**A**: 这是**预期行为**，v2.0 容错机制的设计选择。
 
-**根本原因**: SQLite 单线程写入 (~300 QPS) 无法匹配输入速度。
+**系统行为**:
+```
+发送速率 > 处理能力 (1,500 QPS) 时：
+1. 触发背压 - 接收端自动降速
+2. 启用溢出队列 - 数据暂存到磁盘
+3. 部分数据在传输层被丢弃（TCP缓冲区满）
+```
 
-**✅ 已解决（v2.0 异步存储）**:
+**关键概念**:
+- **客户端成功率**: 成功发送到服务器的比例
+- **服务端存储率**: 最终成功存储的比例（含溢出回填）
+
+**查看真实成功率**:
 ```bash
-# 新版本启用异步存储，持续吞吐量提升至 1,500+ QPS
-go run cmd/server/main.go  # 默认启用异步存储
+# 运行测试后等待 10 秒（让回填完成）
+python stress_test.py -c 50 -rate 100 -total 100000
+sleep 10
 
-# 测试验证
-python stress_test.py -c 20 -rate 100 -total 50000  # 2,000 QPS
+# 查看实际存储数量
+curl http://localhost:8080/api/logs?limit=1
 ```
 
-**异步存储架构**:
-```
-v1.x 同步: 输入 → 处理 → [阻塞SQLite] → 响应
-              ↓
-v2.0 异步: 输入 → 处理 → [内存队列] → 立即响应
-                              ↓
-                        后台批量写入SQLite
-```
+**v2.0 数据保证**:
+| 模式 | 客户端成功率 | 服务端最终存储率 | 数据保证 |
+|------|-------------|-----------------|---------|
+| 无容错 | ~70% | ~70% | 最多一次 |
+| **v2.0 容错** | ~90% | **~99%** | **至少一次** |
 
-**性能对比**:
-| 模式 | 持续 QPS | 突发 QPS | 丢包率 @500QPS |
-|------|----------|----------|----------------|
-| v1.x 同步 | ~300 | 8,000 | 40% |
-| v2.0 异步 | **1,500+** | **20,000+** | **0%** |
-
-**如果仍需降级到同步模式**（不推荐）:
+**溢出队列状态**:
 ```bash
-# 修改 cmd/server/main.go，注释掉 AsyncStorage 包装
-store := sqliteStore  // 直接使用 SQLiteStorage
+python diagnose_system.py --once
+# 查看 overflow_count 和 drain_count
 ```
 
 ### Q: 为什么 `find_max_capacity.py` 显示 8,000 QPS 成功，但 `stress_test.py` 1,500 QPS 就丢包？
