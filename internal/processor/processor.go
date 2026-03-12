@@ -20,6 +20,14 @@ func min(a, b int) int {
 	return b
 }
 
+// ProcessorStats 处理器统计
+type ProcessorStats struct {
+	ReceivedCount  int64 // 接收总数
+	ProcessedCount int64 // 处理成功数
+	DroppedCount   int64 // 丢弃数（队列满）
+	ParseErrorCount int64 // 解析错误数
+}
+
 // Processor 数据处理器
 type Processor struct {
 	config      config.ProcessorConfig
@@ -34,6 +42,7 @@ type Processor struct {
 	cancel      context.CancelFunc
 	mu          sync.RWMutex
 	stopped     bool
+	stats       ProcessorStats
 }
 
 // Parser 解析器接口
@@ -178,11 +187,14 @@ func (p *Processor) Submit(line string) bool {
 	case p.inputChan <- line:
 		return true
 	default:
-		// 队列满，记录警告日志（每100条丢弃记录一次，避免日志风暴）
-		if rand.Intn(100) == 0 {
-			log.Printf("[WARN] Processor input queue full (%d/%d), log dropped", 
-				len(p.inputChan), cap(p.inputChan))
+		// 队列满，记录警告日志（每1000条丢弃记录一次，避免日志风暴）
+		if rand.Intn(1000) == 0 {
+			log.Printf("[WARN] Processor input queue full (%d/%d), total dropped ~%d logs", 
+				len(p.inputChan), cap(p.inputChan), p.stats.DroppedCount)
 		}
+		p.mu.Lock()
+		p.stats.DroppedCount++
+		p.mu.Unlock()
 		return false
 	}
 }
@@ -210,9 +222,16 @@ func (p *Processor) worker(id int) {
 
 // processLine 处理单行日志
 func (p *Processor) processLine(line string) {
+	p.mu.Lock()
+	p.stats.ReceivedCount++
+	p.mu.Unlock()
+	
 	// 解析
 	entry, err := p.parser.Parse(line)
 	if err != nil {
+		p.mu.Lock()
+		p.stats.ParseErrorCount++
+		p.mu.Unlock()
 		log.Printf("[PROCESSOR] Parse error: %v, line: %s", err, line[:min(50, len(line))])
 		return
 	}
@@ -228,6 +247,9 @@ func (p *Processor) processLine(line string) {
 	// 输出
 	select {
 	case p.outputChan <- entry:
+		p.mu.Lock()
+		p.stats.ProcessedCount++
+		p.mu.Unlock()
 	case <-p.ctx.Done():
 	}
 }
@@ -432,10 +454,16 @@ func (p *Processor) SetParser(parser Parser) {
 
 // GetStats 获取处理统计
 func (p *Processor) GetStats() map[string]interface{} {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	return map[string]interface{}{
 		"input_queue_size":  len(p.inputChan),
 		"output_queue_size": len(p.outputChan),
 		"worker_count":      p.config.WorkerCount,
 		"batch_size":        p.config.BatchSize,
+		"received_count":    p.stats.ReceivedCount,
+		"processed_count":   p.stats.ProcessedCount,
+		"dropped_count":     p.stats.DroppedCount,
+		"parse_error_count": p.stats.ParseErrorCount,
 	}
 }

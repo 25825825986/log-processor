@@ -32,6 +32,7 @@ func min(a, b int) int {
 // Server Web服务器
 type Server struct {
 	config         *config.Config
+	configPath     string
 	router         *gin.Engine
 	storage        storage.Storage
 	parser         *parser.LogParser
@@ -41,7 +42,7 @@ type Server struct {
 }
 
 // NewServer 创建新服务器
-func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Processor, recv *receiver.Manager, logFile *os.File) *Server {
+func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Processor, recv *receiver.Manager, logFile *os.File, configPath string) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -51,6 +52,7 @@ func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Proces
 
 	s := &Server{
 		config:        cfg,
+		configPath:    configPath,
 		router:        router,
 		storage:       store,
 		parser:        parser.NewLogParser(cfg.GetParserConfig()),
@@ -161,6 +163,14 @@ func (s *Server) updateConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 保存配置到文件
+	if err := s.config.SaveToFile(s.configPath); err != nil {
+		log.Printf("[ERROR] 保存配置到文件失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "内存中配置已更新，但保存到文件失败: " + err.Error()})
+		return
+	}
+	log.Printf("[INFO] 配置已保存到: %s", s.configPath)
 
 	// 更新解析器配置
 	s.parser.SetConfig(newConfig.Parser)

@@ -1,5 +1,5 @@
 {
-  "_comment": "高性能配置 - 适用于压力测试和高吞吐量场景",
+  "_comment": "【高性能配置】异步存储模式 - 推荐用于生产环境和压测，支持 1500+ QPS 持续吞吐量",
   "server": {
     "host": "0.0.0.0",
     "port": 8080
@@ -16,9 +16,9 @@
     }
   },
   "processor": {
-    "worker_count": 50,
-    "batch_size": 1000,
-    "batch_timeout": 200,
+    "worker_count": 20,
+    "batch_size": 2000,
+    "batch_timeout": 50,
     "clean_rules": [],
     "filter_rules": []
   },
@@ -29,7 +29,7 @@
     "udp_port": 9001,
     "http_enabled": true,
     "http_port": 9002,
-    "buffer_size": 32768
+    "buffer_size": 65536
   },
   "storage": {
     "type": "sqlite",

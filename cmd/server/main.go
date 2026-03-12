@@ -58,10 +58,17 @@ func main() {
 	os.MkdirAll("./temp", 0755)
 
 	// 初始化存储
-	store, err := storage.NewSQLiteStorage(cfg.Get().Storage)
+	sqliteStore, err := storage.NewSQLiteStorage(cfg.Get().Storage)
 	if err != nil {
 		log.Fatalf("初始化存储失败: %v", err)
 	}
+	
+	// 使用异步存储包装器，最大化 SQLite 单线程性能
+	// buffer=50000: 缓冲5万条日志
+	// batch=1000: 每批写入1000条
+	// interval=100ms: 最长100ms刷新一次
+	store := storage.NewAsyncStorage(sqliteStore, 50000, 1000, 100*time.Millisecond)
+	log.Println("[INFO] 启用异步存储模式，写入缓冲: 50000条")
 
 	// 初始化解析器
 	parserCfg := cfg.GetParserConfig()
@@ -90,7 +97,7 @@ func main() {
 	}
 
 	// 初始化Web服务器
-	srv := server.NewServer(cfg, store, proc, recvManager, logFile)
+	srv := server.NewServer(cfg, store, proc, recvManager, logFile, configPath)
 
 	// 创建可取消的上下文
 	ctx, cancel := context.WithCancel(context.Background())
@@ -152,7 +159,7 @@ func main() {
 }
 
 // shutdown 优雅关闭系统
-func shutdown(ctx context.Context, srv *server.Server, recv *receiver.Manager, proc *processor.Processor, store *storage.SQLiteStorage) {
+func shutdown(ctx context.Context, srv *server.Server, recv *receiver.Manager, proc *processor.Processor, store storage.Storage) {
 	// 使用带超时的上下文
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

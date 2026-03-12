@@ -1,5 +1,5 @@
 {
-  "_comment": "日志处理器配置示例 - 根据需求选择合适的配置",
+  "_comment": "【基础配置】适合开发和一般使用场景。如需更高性能，请使用 config.optimized.json",
   "server": {
     "host": "0.0.0.0",
     "port": 8080

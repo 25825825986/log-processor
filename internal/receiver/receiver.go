@@ -185,8 +185,9 @@ func (r *TCPReceiver) handleConnection(conn net.Conn) {
 		line = strings.TrimRight(line, "\r\n")
 		if line != "" {
 			if !r.handler(line) {
-				// 处理器队列满，增加短暂延迟让队列消化
-				time.Sleep(time.Millisecond)
+				// 处理器队列满，数据已丢失
+				// 短暂延迟让队列消化，但不重试（避免阻塞接收）
+				time.Sleep(time.Millisecond * 10)
 			}
 		}
 	}
