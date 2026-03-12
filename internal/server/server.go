@@ -37,13 +37,13 @@ type Server struct {
 	router         *gin.Engine
 	storage        storage.Storage
 	parser         *parser.LogParser
-	processor      processor.ProcessorInterface
+	processor      *processor.Processor
 	receiver       *receiver.Manager
 	exportManager  *exporter.ExportManager
 }
 
 // NewServer 创建新服务器
-func NewServer(cfg *config.Config, store storage.Storage, proc processor.ProcessorInterface, recv *receiver.Manager, logFile *os.File, configPath string) *Server {
+func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Processor, recv *receiver.Manager, logFile *os.File, configPath string) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -532,22 +532,10 @@ func (s *Server) getExportFormats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"formats": formats})
 }
 
-// ProcessorWithResilient 支持容错统计的处理器接口
-type ProcessorWithResilient interface {
-	GetStats() map[string]interface{}
-	GetResilientStats() map[string]interface{}
-}
-
 // getStatus 获取系统状态（过滤敏感信息）
 func (s *Server) getStatus(c *gin.Context) {
 	cfg := s.config.Get()
 	stats := s.processor.GetStats()
-
-	// 尝试获取弹性处理器统计
-	var resilientStats map[string]interface{}
-	if rp, ok := interface{}(s.processor).(ProcessorWithResilient); ok {
-		resilientStats = rp.GetResilientStats()
-	}
 
 	// 只返回基本配置信息，过滤敏感字段
 	c.JSON(http.StatusOK, gin.H{
@@ -565,10 +553,8 @@ func (s *Server) getStatus(c *gin.Context) {
 			},
 			"storage": cfg.Storage,
 		},
-		"processor":         stats,
-		"resilient":         resilientStats,
-		"resilient_enabled": resilientStats != nil,
-		"timestamp":         time.Now(),
+		"processor": stats,
+		"timestamp": time.Now(),
 	})
 }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-日志处理器并发性能测试工具 (v2.0 - 支持容错机制)
+日志处理器并发性能测试工具
 
 使用示例:
     # TCP 测试 - 10万条，100并发，限制速率1000条/秒每连接
@@ -16,15 +16,10 @@
     python download_nasa_logs.py                    # 先下载数据集
     python stress_test.py -file ../data/NASA_access_log_Jul95.txt -total 100000 -rate 50
 
-系统能力 (v2.0+ 容错架构):
-    持续处理能力: ~1,500 QPS (异步存储优化)
-    突发处理能力: ~20,000 QPS (依赖队列缓冲)
-    数据保证: 至少一次 (背压 + 磁盘溢出队列)
-    
-    当发送速率超过处理能力时：
-    1. 触发背压机制 - 自动降速
-    2. 启用磁盘溢出队列 - 数据暂存到磁盘
-    3. 队列空闲时自动回填 - 保证数据不丢失
+注意:
+    系统处理能力上限约 800 QPS 持续 / 8,000 QPS 突发 (SQLite限制)
+    发送速率超过此值将导致日志被丢弃，这是预期行为
+    建议使用 -rate 参数限制每连接发送速率
 
 NASA 数据集:
     下载: python download_nasa_logs.py
@@ -55,14 +50,14 @@ REALISTIC_PATHS = [
 ]
 
 HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"]
-HTTP_METHOD_WEIGHTS = [70, 20, 5, 3, 2]  # GET占70%，POST占20%等
+HTTP_METHOD_WEIGHTS = [70, 20, 5, 3, 2]
 
 STATUS_CODES = [200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 500, 502, 503]
-STATUS_CODE_WEIGHTS = [65, 8, 5, 3, 2, 4, 3, 2, 2, 4, 1, 0.5, 0.5]  # 2xx占82%，4xx占11%等
+STATUS_CODE_WEIGHTS = [65, 8, 5, 3, 2, 4, 3, 2, 2, 4, 1, 0.5, 0.5]
 
 IP_RANGES = [
-    "192.168.1", "10.0.0", "172.16.0",  # 内网IP
-    "203.0.113", "198.51.100", "192.0.2"  # 测试/文档IP
+    "192.168.1", "10.0.0", "172.16.0",
+    "203.0.113", "198.51.100", "192.0.2"
 ]
 
 USER_AGENTS = [
@@ -105,7 +100,6 @@ def generate_log_line(seq):
     """生成真实分布的Nginx格式日志"""
     timestamp = datetime.now().strftime("%d/%b/%Y:%H:%M:%S %z")
     
-    # 随机选择各个字段
     ip_range = random.choice(IP_RANGES)
     client_ip = f"{ip_range}.{random.randint(1, 254)}"
     
@@ -115,8 +109,6 @@ def generate_log_line(seq):
     size = random.randint(100, 100000)
     referer = random.choice(REFERERS)
     user_agent = random.choice(USER_AGENTS)
-    
-    # 随机响应时间 (0.001 ~ 5.0秒)
     response_time = round(random.uniform(0.001, 5.0), 3)
     
     return f'{client_ip} - - [{timestamp}] "{method} {path} HTTP/1.1" {status} {size} "{referer}" "{user_agent}" "{response_time}"'
@@ -130,7 +122,6 @@ def tcp_sender(args, stats, worker_id, log_reader=None):
         sock.settimeout(5)
         
         while True:
-            # 检查是否应该停止（原子操作）
             with stats.lock:
                 if args.duration > 0:
                     should_stop = time.time() - stats.start_time > args.duration
@@ -138,14 +129,11 @@ def tcp_sender(args, stats, worker_id, log_reader=None):
                     should_stop = stats.sent >= args.total
                 if should_stop:
                     break
-                # 预占额度
                 stats.sent += 1
             
-            # 限流控制
             if args.rate > 0:
                 time.sleep(1.0 / args.rate)
             
-            # 从文件读取或生成随机日志
             if log_reader:
                 log_line = log_reader.get_line()
             else:
@@ -154,7 +142,6 @@ def tcp_sender(args, stats, worker_id, log_reader=None):
             try:
                 sock.sendall((log_line + '\n').encode())
             except Exception:
-                # 发送失败，回退统计
                 with stats.lock:
                     stats.sent -= 1
                     stats.failed += 1
@@ -177,7 +164,6 @@ def udp_sender(args, stats, worker_id, log_reader=None):
         sock.settimeout(5)
         
         while True:
-            # 检查是否应该停止（原子操作）
             with stats.lock:
                 if args.duration > 0:
                     should_stop = time.time() - stats.start_time > args.duration
@@ -185,13 +171,11 @@ def udp_sender(args, stats, worker_id, log_reader=None):
                     should_stop = stats.sent >= args.total
                 if should_stop:
                     break
-                # 预占额度
                 stats.sent += 1
             
             if args.rate > 0:
                 time.sleep(1.0 / args.rate)
             
-            # 从文件读取或生成随机日志
             if log_reader:
                 log_line = log_reader.get_line()
             else:
@@ -200,7 +184,6 @@ def udp_sender(args, stats, worker_id, log_reader=None):
             try:
                 sock.sendto((log_line + '\n').encode(), (args.addr.split(':')[0], int(args.addr.split(':')[1])))
             except Exception:
-                # 发送失败，回退统计
                 with stats.lock:
                     stats.sent -= 1
                     stats.failed += 1
@@ -215,7 +198,6 @@ def http_sender(args, stats, worker_id, log_reader=None):
     url = f"http://{args.addr}/logs"
     
     while True:
-        # 检查是否应该停止（原子操作）
         with stats.lock:
             if args.duration > 0:
                 should_stop = time.time() - stats.start_time > args.duration
@@ -224,16 +206,13 @@ def http_sender(args, stats, worker_id, log_reader=None):
             if should_stop:
                 break
             
-            # 计算本次发送数量
             remaining = args.total - stats.sent if args.duration == 0 else args.batch
             batch_size = min(args.batch, remaining) if args.duration == 0 else args.batch
             if batch_size <= 0:
                 break
             
-            # 预占额度
             stats.sent += batch_size
         
-        # 批量获取日志行
         lines = []
         if log_reader:
             lines = log_reader.get_batch(batch_size)
@@ -252,12 +231,10 @@ def http_sender(args, stats, worker_id, log_reader=None):
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 if resp.status != 200:
-                    # 发送失败，回退统计
                     with stats.lock:
                         stats.sent -= batch_size
                         stats.failed += batch_size
         except Exception:
-            # 异常，回退统计
             with stats.lock:
                 stats.sent -= batch_size
                 stats.failed += batch_size
@@ -287,11 +264,12 @@ def clear_server_logs():
     try:
         req = urllib.request.Request('http://localhost:8080/api/logs', method='DELETE')
         urllib.request.urlopen(req, timeout=10)
-        time.sleep(0.5)  # 等待清空完成
+        time.sleep(0.5)
         return True
     except Exception as e:
         print(f"[WARN] 清空数据失败: {e}")
         return False
+
 
 def get_server_count():
     """获取服务端日志数量"""
@@ -303,18 +281,6 @@ def get_server_count():
     except Exception:
         return 0
 
-
-def get_resilient_info():
-    """获取容错机制信息"""
-    try:
-        req = urllib.request.Request('http://localhost:8080/api/status', method='GET')
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode())
-            resilient = data.get('resilient', {})
-            resilient['resilient_enabled'] = data.get('resilient_enabled', False)
-            return resilient
-    except Exception:
-        return None
 
 # 日志文件读取器（支持循环读取）
 class LogFileReader:
@@ -369,15 +335,14 @@ def main():
                        help='并发连接数/协程数')
     parser.add_argument('-duration', type=int, default=0, 
                        help='测试持续时间(秒)，0表示按total发送')
-    parser.add_argument('-batch', type=int, default=100, 
-                       help='每批发送条数(仅HTTP有效)')
     parser.add_argument('-rate', type=int, default=0, 
                        help='每连接限流速率(条/秒)，0为不限流')
+    parser.add_argument('-batch', type=int, default=100, 
+                       help='HTTP批量发送条数')
     parser.add_argument('-no-clear', action='store_true',
                        help='测试前不清空服务端数据')
     parser.add_argument('-file', type=str, default=None,
-                       help='从日志文件读取数据发送。支持: 1) 项目自带测试文件(../data/test_logs.txt) '
-                            '2) NASA真实日志(../data/NASA_access_log_Jul95.txt，需先运行 download_nasa_logs.py 下载)')
+                       help='从日志文件读取数据发送')
     args = parser.parse_args()
 
     # 初始化日志文件读取器（如果指定了文件）
@@ -387,7 +352,7 @@ def main():
         if not log_reader.lines:
             print("[ERROR] 日志文件为空或无法读取，退出测试")
             return
-    
+
     print("=" * 50)
     print("日志处理器并发性能测试")
     print("=" * 50)
@@ -407,7 +372,7 @@ def main():
     # 系统能力警告
     estimated_qps = args.c * args.rate if args.rate > 0 else args.total if args.duration == 0 else args.c * 10000
     if estimated_qps > 1500:
-        print(f"\n[⚠️  警告] 预估发送速率 {estimated_qps:,} QPS 超过系统处理能力上限 (~1,500 QPS)")
+        print(f"\n[警告] 预估发送速率 {estimated_qps:,} QPS 超过系统处理能力上限 (~1,500 QPS)")
         print("          超过此限制的日志将被丢弃，这是预期行为")
         print("          建议使用 -rate 参数限制发送速率")
     print()
@@ -469,13 +434,56 @@ def main():
     print("=" * 50)
     print("服务端验证")
     print("=" * 50)
-    print("等待 2 秒让服务端处理完队列...")
-    time.sleep(2)
     
-    final_count = get_server_count()
+    # 估算需要的等待时间：SQLite 处理速度约 500 QPS
+    estimated_process_time = (stats.sent / 500) * 2
+    max_wait = min(int(estimated_process_time), 120)
+    if max_wait < 10:
+        max_wait = 10
+    
+    check_interval = 2
+    
+    print(f"等待服务端处理队列（预估需要 {max_wait} 秒）...")
+    print(f"提示: SQLite 单线程写入约 500 QPS")
+    
+    prev_count = get_server_count()
+    stable_count = 0
+    final_count = prev_count
+    start_wait = time.time()
+    
+    while time.time() - start_wait < max_wait:
+        time.sleep(check_interval)
+        current_count = get_server_count()
+        added = current_count - initial_count
+        elapsed_wait = time.time() - start_wait
+        
+        if stats.sent > 0:
+            progress = (added / stats.sent) * 100
+            qps_recent = (current_count - prev_count) / check_interval
+            print(f"  [{elapsed_wait:5.1f}s] 已存储: {added:,} / {stats.sent:,} ({progress:.1f}%) 速度: {qps_recent:.0f} QPS")
+        
+        # 检查数据是否还在增加
+        if current_count == prev_count:
+            stable_count += 1
+            if stable_count >= 3:
+                print(f"\n[OK] 数据已稳定，停止等待")
+                break
+        else:
+            stable_count = 0
+        
+        # 如果已经达到100%，提前结束
+        if added >= stats.sent:
+            print(f"\n[OK] 所有数据已存储")
+            break
+        
+        prev_count = current_count
+        final_count = current_count
+    else:
+        print(f"\n[信息] 达到最大等待时间 ({max_wait} 秒)")
+    
     added = final_count - initial_count
     
-    print(f"客户端发送: {stats.sent:,} 条")
+    print(f"\n客户端发送: {stats.sent:,} 条")
     print(f"服务端原有: {initial_count:,} 条")
     print(f"服务端现有: {final_count:,} 条")
     print(f"本次新增: {added:,} 条")
@@ -484,30 +492,16 @@ def main():
         success_rate = (added / stats.sent) * 100
         print(f"处理成功率: {success_rate:.1f}%")
         
-        # 检查是否启用了容错机制
-        resilient_info = get_resilient_info()
-        if resilient_info and resilient_info.get('resilient_enabled'):
-            overflow_count = resilient_info.get('overflow_count', 0)
-            drain_count = resilient_info.get('drain_count', 0)
-            backpressure_level = resilient_info.get('backpressure_level', 0)
-            
-            print(f"\n📊 容错机制状态:")
-            print(f"  背压级别: {backpressure_level} (0=无, 1=轻度, 2=中度, 3=严重)")
-            print(f"  溢出到磁盘: {overflow_count} 条")
-            print(f"  已回填: {drain_count} 条")
-            
-            if overflow_count > 0:
-                print(f"\n💾 数据已溢出到磁盘，将在队列空闲时自动回填")
-        
         if success_rate >= 95:
-            print("\n✅ 所有日志已存储")
+            print("\n[OK] 所有日志已存储")
         elif success_rate >= 80:
-            print("\n⚠️  部分日志可能仍在处理队列中或已溢出到磁盘")
+            print("\n[信息] 部分日志可能仍在处理队列中")
         else:
-            print("\n⚠️  警告: 大量日志可能因队列满被丢弃")
-            print("   建议: 1) 降低发送速率 2) 增大溢出队列 3) 检查磁盘空间")
+            print("\n[警告] 大量日志可能因队列满被丢弃")
+            print("   建议: 1) 降低发送速率 2) 缩短测试时间")
     else:
-        print("❌ 未成功发送任何日志")
+        print("[X] 未成功发送任何日志")
+
 
 if __name__ == "__main__":
     main()
