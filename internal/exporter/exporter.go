@@ -14,9 +14,14 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+// ExportOptions 导出选项
+type ExportOptions struct {
+	TimeFormat string // 时间格式，如 "2006-01-02 15:04:05"
+}
+
 // Exporter 导出器接口
 type Exporter interface {
-	Export(entries []*models.LogEntry, outputPath string) error
+	Export(entries []*models.LogEntry, outputPath string, opts *ExportOptions) error
 	GetContentType() string
 	GetExtension() string
 }
@@ -30,7 +35,7 @@ func NewExcelExporter() *ExcelExporter {
 }
 
 // Export 导出为Excel
-func (e *ExcelExporter) Export(entries []*models.LogEntry, outputPath string) error {
+func (e *ExcelExporter) Export(entries []*models.LogEntry, outputPath string, opts *ExportOptions) error {
 	f := excelize.NewFile()
 	sheetName := "Logs"
 	f.SetSheetName("Sheet1", sheetName)
@@ -61,11 +66,17 @@ func (e *ExcelExporter) Export(entries []*models.LogEntry, outputPath string) er
 	})
 	f.SetRowStyle(sheetName, 1, 1, style)
 
+	// 确定时间格式
+	timeFormat := time.RFC3339
+	if opts != nil && opts.TimeFormat != "" {
+		timeFormat = opts.TimeFormat
+	}
+
 	// 写入数据
 	for i, entry := range entries {
 		row := i + 2
 		f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), entry.ID)
-		f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), entry.Timestamp.Format(time.RFC3339))
+		f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), entry.Timestamp.Format(timeFormat))
 		f.SetCellValue(sheetName, fmt.Sprintf("C%d", row), entry.Source)
 		f.SetCellValue(sheetName, fmt.Sprintf("D%d", row), entry.Level)
 		f.SetCellValue(sheetName, fmt.Sprintf("E%d", row), entry.Method)
@@ -80,16 +91,10 @@ func (e *ExcelExporter) Export(entries []*models.LogEntry, outputPath string) er
 		f.SetCellValue(sheetName, fmt.Sprintf("N%d", row), entry.RawData)
 	}
 
-	// 调整列宽
+	// 自动调整列宽
 	for col := 1; col <= len(headers); col++ {
-		colName, _ := excelize.ColumnNumberToName(col)
-		f.SetColWidth(sheetName, colName, colName, 20)
-	}
-
-	// 确保目录存在
-	dir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+		cell, _ := excelize.CoordinatesToCellName(col, 1)
+		f.SetColWidth(sheetName, cell[:1], cell[:1], 18)
 	}
 
 	return f.SaveAs(outputPath)
@@ -114,8 +119,7 @@ func NewCSVExporter() *CSVExporter {
 }
 
 // Export 导出为CSV
-func (e *CSVExporter) Export(entries []*models.LogEntry, outputPath string) error {
-	// 确保目录存在
+func (e *CSVExporter) Export(entries []*models.LogEntry, outputPath string, opts *ExportOptions) error {
 	dir := filepath.Dir(outputPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -140,11 +144,17 @@ func (e *CSVExporter) Export(entries []*models.LogEntry, outputPath string) erro
 		return err
 	}
 
+	// 确定时间格式
+	timeFormat := time.RFC3339
+	if opts != nil && opts.TimeFormat != "" {
+		timeFormat = opts.TimeFormat
+	}
+
 	// 写入数据
 	for _, entry := range entries {
 		record := []string{
 			entry.ID,
-			entry.Timestamp.Format(time.RFC3339),
+			entry.Timestamp.Format(timeFormat),
 			entry.Source,
 			entry.Level,
 			entry.Method,
@@ -179,25 +189,76 @@ func (e *CSVExporter) GetExtension() string {
 // JSONExporter JSON导出器
 type JSONExporter struct{}
 
+// JSONEntry 带格式化时间的日志条目
+type JSONEntry struct {
+	ID           string            `json:"id"`
+	Timestamp    string            `json:"timestamp"`
+	Source       string            `json:"source"`
+	Level        string            `json:"level"`
+	Method       string            `json:"method"`
+	Path         string            `json:"path"`
+	StatusCode   int               `json:"status_code"`
+	ResponseTime int64             `json:"response_time"`
+	ClientIP     string            `json:"client_ip"`
+	UserAgent    string            `json:"user_agent"`
+	Referer      string            `json:"referer"`
+	RequestSize  int64             `json:"request_size"`
+	ResponseSize int64             `json:"response_size"`
+	ExtraFields  map[string]string `json:"extra_fields,omitempty"`
+	RawData      string            `json:"raw_data"`
+	CreatedAt    string            `json:"created_at"`
+}
+
 // NewJSONExporter 创建JSON导出器
 func NewJSONExporter() *JSONExporter {
 	return &JSONExporter{}
 }
 
 // Export 导出为JSON
-func (e *JSONExporter) Export(entries []*models.LogEntry, outputPath string) error {
-	// 确保目录存在
+func (e *JSONExporter) Export(entries []*models.LogEntry, outputPath string, opts *ExportOptions) error {
 	dir := filepath.Dir(outputPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(entries, "", "  ")
+	file, err := os.Create(outputPath)
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
-	return os.WriteFile(outputPath, data, 0644)
+	// 确定时间格式
+	timeFormat := time.RFC3339
+	if opts != nil && opts.TimeFormat != "" {
+		timeFormat = opts.TimeFormat
+	}
+
+	// 转换为带格式化时间的结构
+	jsonEntries := make([]JSONEntry, len(entries))
+	for i, entry := range entries {
+		jsonEntries[i] = JSONEntry{
+			ID:           entry.ID,
+			Timestamp:    entry.Timestamp.Format(timeFormat),
+			Source:       entry.Source,
+			Level:        entry.Level,
+			Method:       entry.Method,
+			Path:         entry.Path,
+			StatusCode:   entry.StatusCode,
+			ResponseTime: entry.ResponseTime,
+			ClientIP:     entry.ClientIP,
+			UserAgent:    entry.UserAgent,
+			Referer:      entry.Referer,
+			RequestSize:  entry.RequestSize,
+			ResponseSize: entry.ResponseSize,
+			ExtraFields:  entry.ExtraFields,
+			RawData:      entry.RawData,
+			CreatedAt:    entry.CreatedAt.Format(timeFormat),
+		}
+	}
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(jsonEntries)
 }
 
 // GetContentType 返回Content-Type
@@ -211,46 +272,36 @@ func (e *JSONExporter) GetExtension() string {
 }
 
 // ExportManager 导出管理器
-type ExportManager struct {
-	exporters map[string]Exporter
-}
+type ExportManager struct{}
 
 // NewExportManager 创建导出管理器
 func NewExportManager() *ExportManager {
-	m := &ExportManager{
-		exporters: make(map[string]Exporter),
+	return &ExportManager{}
+}
+
+// Export 根据格式导出数据
+func (m *ExportManager) Export(entries []*models.LogEntry, format, outputPath string, opts *ExportOptions) (string, error) {
+	var exporter Exporter
+
+	switch format {
+	case "excel":
+		exporter = NewExcelExporter()
+	case "csv":
+		exporter = NewCSVExporter()
+	case "json":
+		exporter = NewJSONExporter()
+	default:
+		return "", fmt.Errorf("unsupported format: %s", format)
 	}
-	m.Register("excel", NewExcelExporter())
-	m.Register("csv", NewCSVExporter())
-	m.Register("json", NewJSONExporter())
-	return m
-}
 
-// Register 注册导出器
-func (m *ExportManager) Register(format string, exporter Exporter) {
-	m.exporters[format] = exporter
-}
-
-// GetExporter 获取导出器
-func (m *ExportManager) GetExporter(format string) (Exporter, bool) {
-	exporter, ok := m.exporters[format]
-	return exporter, ok
-}
-
-// Export 导出数据
-func (m *ExportManager) Export(format string, entries []*models.LogEntry, outputPath string) error {
-	exporter, ok := m.exporters[format]
-	if !ok {
-		return fmt.Errorf("unsupported format: %s", format)
+	if err := exporter.Export(entries, outputPath, opts); err != nil {
+		return "", err
 	}
-	return exporter.Export(entries, outputPath)
+
+	return exporter.GetContentType(), nil
 }
 
-// GetSupportedFormats 获取支持的格式列表
+// GetSupportedFormats 返回支持的导出格式
 func (m *ExportManager) GetSupportedFormats() []string {
-	formats := make([]string, 0, len(m.exporters))
-	for format := range m.exporters {
-		formats = append(formats, format)
-	}
-	return formats
+	return []string{"excel", "csv", "json"}
 }

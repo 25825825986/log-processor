@@ -1650,68 +1650,24 @@ async function loadConfig() {
         const response = await fetch('/api/config');
         const config = await response.json();
         
-        // 填充表单
-        const format = config.parser?.format || 'nginx';
-        document.getElementById('parser-format').value = format;
+        // Processor 配置 - 使用滑块
+        const workers = config.processor?.worker_count || 10;
+        const batchSize = config.processor?.batch_size || 100;
+        const timeout = config.processor?.batch_timeout || 1000;
         
-        // 同步格式卡片UI
-        document.querySelectorAll('.format-card').forEach(card => {
-            card.classList.toggle('active', card.dataset.format === format);
-        });
+        document.getElementById('processor-workers').value = workers;
+        document.getElementById('processor-batch-size').value = batchSize;
+        document.getElementById('processor-timeout').value = timeout;
         
-        const delimiter = config.parser?.delimiter || ' ';
-        document.getElementById('parser-delimiter').value = delimiter;
+        // 更新滑块显示值
+        updateSliderValue('processor-workers', workers);
+        updateSliderValue('processor-batch-size', batchSize);
+        updateSliderValue('processor-timeout', timeout);
         
-        // 同步分隔符按钮UI
-        document.querySelectorAll('.delimiter-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.value === delimiter);
-        });
+        // 检测并应用匹配的预设
+        detectAndApplyPreset(workers, batchSize, timeout);
         
-        // 处理时间格式
-        const timeFormat = config.parser?.time_format || '02/Jan/2006:15:04:05 -0700';
-        const timeInput = document.getElementById('parser-time-format');
-        if (timeInput) {
-            timeInput.value = timeFormat;
-        }
-        
-        // 选中对应的卡片
-        const cards = document.querySelectorAll('.time-format-card');
-        let matched = false;
-        cards.forEach(card => {
-            card.classList.remove('active');
-            if (card.dataset.format === timeFormat) {
-                card.classList.add('active');
-                matched = true;
-            }
-        });
-        
-        // 如果没有匹配的预设，默认选中第一个
-        if (!matched && cards.length > 0) {
-            cards[0].classList.add('active');
-        }
-        
-        // 更新预览
-        updateTimeFormatPreview(timeFormat);
-        
-        // 初始化字段映射可视化编辑器
-        const fieldMapping = config.parser?.field_mapping || { "0": "client_ip", "3": "timestamp", "4": "method", "5": "path" };
-        document.getElementById('parser-mapping').value = JSON.stringify(fieldMapping, null, 2);
-        initMappingList(fieldMapping);
-        
-        document.getElementById('processor-workers').value = config.processor?.worker_count || 10;
-        document.getElementById('processor-batch-size').value = config.processor?.batch_size || 100;
-        document.getElementById('processor-timeout').value = config.processor?.batch_timeout || 1000;
-        
-        // 初始化清洗规则可视化编辑器
-        const cleanRules = config.processor?.clean_rules || [];
-        document.getElementById('processor-clean-rules').value = JSON.stringify(cleanRules, null, 2);
-        initCleanRulesList(cleanRules);
-        
-        // 初始化过滤规则可视化编辑器
-        const filterRules = config.processor?.filter_rules || [];
-        document.getElementById('processor-filter-rules').value = JSON.stringify(filterRules, null, 2);
-        initFilterRulesList(filterRules);
-        
+        // Receiver 配置
         document.getElementById('receiver-tcp').checked = config.receiver?.tcp_enabled ?? true;
         document.getElementById('receiver-tcp-port').value = config.receiver?.tcp_port || 9000;
         document.getElementById('receiver-udp').checked = config.receiver?.udp_enabled ?? true;
@@ -1719,20 +1675,9 @@ async function loadConfig() {
         document.getElementById('receiver-http').checked = config.receiver?.http_enabled ?? true;
         document.getElementById('receiver-http-port').value = config.receiver?.http_port || 9002;
         document.getElementById('receiver-http-token').value = config.receiver?.http_auth_token || '';
-        document.getElementById('receiver-http-ips').value = (config.receiver?.http_allowed_ips || []).join(',');
-        document.getElementById('receiver-http-rate').value = config.receiver?.http_rate_limit || 0;
+        document.getElementById('receiver-http-ips').value = (config.receiver?.http_allowed_ips || []).join(', ');
         
-        const bufferSize = config.receiver?.buffer_size || 16384;
-        document.getElementById('receiver-buffer').value = bufferSize;
-        
-        // 同步缓冲区按钮UI
-        document.querySelectorAll('.buffer-btn').forEach(btn => {
-            btn.classList.toggle('active', parseInt(btn.dataset.value) === bufferSize);
-        });
-        
-        document.getElementById('storage-type').value = config.storage?.type || 'sqlite';
-        
-        // 更新存储路径显示
+        // Storage 配置
         const dbPath = config.storage?.db_path || './data/logs.db';
         document.getElementById('storage-db-path').value = dbPath;
         const pathText = document.getElementById('storage-path-text');
@@ -1741,12 +1686,33 @@ async function loadConfig() {
         }
         
         // 更新保留时间并同步按钮状态
-        const retention = config.storage?.retention_hours || 168;
+        const retention = config.storage?.retention_hours || 720;
         document.getElementById('storage-retention').value = retention;
         updateRetentionButtons(retention);
+        
+        // 加载存储信息
+        loadStorageInfo();
+        
     } catch (error) {
         console.error('Failed to load config:', error);
     }
+}
+
+// 根据当前值检测并应用预设
+function detectAndApplyPreset(workers, batchSize, timeout) {
+    // 查找匹配的预设
+    let matchedPreset = null;
+    for (const [name, preset] of Object.entries(PERFORMANCE_PRESETS)) {
+        if (preset.workers === workers && preset.batchSize === batchSize && preset.timeout === timeout) {
+            matchedPreset = name;
+            break;
+        }
+    }
+    
+    // 更新预设卡片状态
+    document.querySelectorAll('.preset-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.preset === matchedPreset);
+    });
 }
 
 // 保存配置
@@ -1762,19 +1728,10 @@ async function saveConfig() {
             host: "0.0.0.0",
             port: 8080
         },
-        parser: {
-            format: document.getElementById('parser-format')?.value || 'nginx',
-            delimiter: document.getElementById('parser-delimiter')?.value || ' ',
-            time_format: document.getElementById('parser-time-format')?.value || '02/Jan/2006:15:04:05 -0700',
-            field_mapping: JSON.parse(document.getElementById('parser-mapping')?.value || '{}'),
-            parse_user_agent: false
-        },
         processor: {
             worker_count: parseInt(document.getElementById('processor-workers')?.value) || 10,
             batch_size: parseInt(document.getElementById('processor-batch-size')?.value) || 100,
-            batch_timeout: parseInt(document.getElementById('processor-timeout')?.value) || 1000,
-            clean_rules: JSON.parse(document.getElementById('processor-clean-rules')?.value || '[]'),
-            filter_rules: JSON.parse(document.getElementById('processor-filter-rules')?.value || '[]')
+            batch_timeout: parseInt(document.getElementById('processor-timeout')?.value) || 1000
         },
         receiver: {
             tcp_enabled: document.getElementById('receiver-tcp')?.checked ?? true,
@@ -1784,15 +1741,9 @@ async function saveConfig() {
             http_enabled: document.getElementById('receiver-http')?.checked ?? true,
             http_port: parseInt(document.getElementById('receiver-http-port')?.value) || 9002,
             http_auth_token: document.getElementById('receiver-http-token')?.value || '',
-            http_allowed_ips: (document.getElementById('receiver-http-ips')?.value || '').split(',').map(s => s.trim()).filter(s => s),
-            http_rate_limit: parseInt(document.getElementById('receiver-http-rate')?.value) || 0,
-            buffer_size: parseInt(document.getElementById('receiver-buffer')?.value) || 65536,
-            file_watcher_enabled: false,
-            watch_paths: [],
-            max_connections: 1000
+            http_allowed_ips: (document.getElementById('receiver-http-ips')?.value || '').split(',').map(s => s.trim()).filter(s => s)
         },
         storage: {
-            type: document.getElementById('storage-type')?.value || 'sqlite',
             db_path: document.getElementById('storage-db-path')?.value || './data/logs.db',
             retention_hours: parseInt(document.getElementById('storage-retention')?.value) || 720
         }
@@ -1846,3 +1797,89 @@ document.addEventListener('visibilitychange', () => {
         loadDashboard();
     }
 });
+
+// ========== 新增配置面板功能 ==========
+
+// 性能预设配置
+const PERFORMANCE_PRESETS = {
+    dev: { workers: 2, batchSize: 50, timeout: 500 },
+    standard: { workers: 10, batchSize: 100, timeout: 1000 },
+    high: { workers: 20, batchSize: 200, timeout: 2000 },
+    ultra: { workers: 50, batchSize: 500, timeout: 5000 }
+};
+
+// 应用性能预设
+function applyPreset(presetName) {
+    const preset = PERFORMANCE_PRESETS[presetName];
+    if (!preset) return;
+    
+    // 更新滑块值
+    document.getElementById('processor-workers').value = preset.workers;
+    document.getElementById('processor-batch-size').value = preset.batchSize;
+    document.getElementById('processor-timeout').value = preset.timeout;
+    
+    // 更新显示值
+    updateSliderValue('processor-workers', preset.workers);
+    updateSliderValue('processor-batch-size', preset.batchSize);
+    updateSliderValue('processor-timeout', preset.timeout);
+    
+    // 更新预设卡片状态
+    document.querySelectorAll('.preset-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.preset === presetName);
+    });
+}
+
+// 更新滑块显示值
+function updateSliderValue(id, value) {
+    const badge = document.getElementById(id + '-value');
+    if (badge) {
+        badge.textContent = value;
+    }
+}
+
+// 压缩数据库
+async function compactDB() {
+    if (!confirm('确定要压缩数据库吗？这将释放未使用的空间。')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/storage/compact', {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            alert(`数据库压缩成功！释放空间: ${formatBytes(result.freed_bytes || 0)}`);
+            loadStorageInfo();
+        } else {
+            alert('压缩失败: ' + (await response.text()));
+        }
+    } catch (error) {
+        alert('压缩请求失败: ' + error.message);
+    }
+}
+
+// 加载存储信息
+async function loadStorageInfo() {
+    try {
+        const response = await fetch('/api/storage/info');
+        const info = await response.json();
+        
+        const sizeEl = document.getElementById('storage-size');
+        if (sizeEl && info.size_bytes !== undefined) {
+            sizeEl.textContent = formatBytes(info.size_bytes);
+        }
+    } catch (error) {
+        console.error('Failed to load storage info:', error);
+    }
+}
+
+// 字节格式化
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}

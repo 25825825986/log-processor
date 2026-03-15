@@ -21,6 +21,15 @@ type Config struct {
 	// 处理器配置
 	Processor ProcessorConfig `json:"processor"`
 
+	// 告警配置
+	Alert AlertConfig `json:"alert"`
+
+	// 显示配置
+	Display DisplayConfig `json:"display"`
+
+	// 导入配置
+	Import ImportConfig `json:"import"`
+
 	// 存储配置
 	Storage StorageConfig `json:"storage"`
 
@@ -34,25 +43,10 @@ type ServerConfig struct {
 	Port int    `json:"port"`
 }
 
-// ParserConfig 解析配置
+// ParserConfig 解析配置 - 系统自动识别格式，无需手动配置
 type ParserConfig struct {
-	// 字段分隔符，如 " ", "\t", "|" 等
-	Delimiter string `json:"delimiter"`
-
-	// 字段映射规则：位置 -> 字段名
-	FieldMapping map[int]string `json:"field_mapping"`
-
-	// 预定义格式：nginx, apache, json, custom
+	// 格式自动识别，固定为 auto
 	Format string `json:"format"`
-
-	// 时间字段格式
-	TimeFormat string `json:"time_format"`
-
-	// 是否解析User-Agent
-	ParseUserAgent bool `json:"parse_user_agent"`
-
-	// 自定义解析规则（正则表达式）
-	CustomRegex string `json:"custom_regex,omitempty"`
 }
 
 // ProcessorConfig 处理器配置
@@ -65,27 +59,36 @@ type ProcessorConfig struct {
 
 	// 批处理超时（毫秒）
 	BatchTimeout int `json:"batch_timeout"`
-
-	// 清洗规则
-	CleanRules []CleanRule `json:"clean_rules"`
-
-	// 过滤规则
-	FilterRules []FilterRule `json:"filter_rules"`
 }
 
-// CleanRule 清洗规则
-type CleanRule struct {
-	Field     string `json:"field"`     // 目标字段
-	Operation string `json:"operation"` // trim, remove, replace, regex
-	Value     string `json:"value"`     // 替换值或正则表达式
+// AlertConfig 告警配置
+type AlertConfig struct {
+	// 慢请求阈值（毫秒）
+	SlowThreshold int `json:"slow_threshold"`
+
+	// 错误率阈值（百分比）
+	ErrorRateThreshold int `json:"error_rate_threshold"`
 }
 
-// FilterRule 过滤规则
-type FilterRule struct {
-	Field     string `json:"field"`
-	Operator  string `json:"operator"` // eq, ne, gt, lt, contains, regex
-	Value     string `json:"value"`
-	Condition string `json:"condition"` // and, or
+// DisplayConfig 显示配置
+type DisplayConfig struct {
+	// 每页显示条数
+	PageSize int `json:"page_size"`
+
+	// 自动刷新间隔（秒，0表示关闭）
+	RefreshInterval int `json:"refresh_interval"`
+
+	// 显示的列
+	Columns []string `json:"columns"`
+}
+
+// ImportConfig 导入配置
+type ImportConfig struct {
+	// 并发数
+	Concurrency int `json:"concurrency"`
+
+	// 单文件最大行数
+	MaxLines int `json:"max_lines"`
 }
 
 // StorageConfig 存储配置
@@ -155,18 +158,25 @@ func loadDefaultConfig() *Config {
 			Port: 8080,
 		},
 		Parser: ParserConfig{
-			Delimiter:      " ",
-			FieldMapping:   getDefaultFieldMapping(),
-			Format:         "nginx",
-			TimeFormat:     "02/Jan/2006:15:04:05 -0700",
-			ParseUserAgent: false,
+			Format: "auto", // 系统自动识别日志格式
 		},
 		Processor: ProcessorConfig{
-			WorkerCount:    10,
-			BatchSize:      100,
-			BatchTimeout:   1000,
-			CleanRules:     []CleanRule{},
-			FilterRules:    []FilterRule{},
+			WorkerCount:  10,
+			BatchSize:    500,
+			BatchTimeout: 1000,
+		},
+		Alert: AlertConfig{
+			SlowThreshold:      1000,
+			ErrorRateThreshold: 5,
+		},
+		Display: DisplayConfig{
+			PageSize:        50,
+			RefreshInterval: 10,
+			Columns:         []string{"timestamp", "method", "path", "status_code", "response_time", "client_ip"},
+		},
+		Import: ImportConfig{
+			Concurrency: 5,
+			MaxLines:    100000,
 		},
 		Storage: StorageConfig{
 			Type:           "sqlite",
@@ -189,20 +199,7 @@ func loadDefaultConfig() *Config {
 	}
 }
 
-// getDefaultFieldMapping 获取默认字段映射（Nginx格式）
-func getDefaultFieldMapping() map[int]string {
-	return map[int]string{
-		0:  "client_ip",
-		3:  "timestamp",
-		4:  "method",
-		5:  "path",
-		6:  "protocol",
-		8:  "status_code",
-		9:  "response_size",
-		10: "referer",
-		11: "user_agent",
-	}
-}
+
 
 // Update 更新配置
 func (c *Config) Update(newConfig *Config) error {
@@ -212,6 +209,9 @@ func (c *Config) Update(newConfig *Config) error {
 	c.Server = newConfig.Server
 	c.Parser = newConfig.Parser
 	c.Processor = newConfig.Processor
+	c.Alert = newConfig.Alert
+	c.Display = newConfig.Display
+	c.Import = newConfig.Import
 	c.Storage = newConfig.Storage
 	c.Receiver = newConfig.Receiver
 
@@ -227,6 +227,9 @@ func (c *Config) Get() Config {
 		Server:    c.Server,
 		Parser:    c.Parser,
 		Processor: c.Processor,
+		Alert:     c.Alert,
+		Display:   c.Display,
+		Import:    c.Import,
 		Storage:   c.Storage,
 		Receiver:  c.Receiver,
 	}
@@ -283,4 +286,25 @@ func (c *Config) GetReceiverConfig() ReceiverConfig {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.Receiver
+}
+
+// GetAlertConfig 获取告警配置
+func (c *Config) GetAlertConfig() AlertConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Alert
+}
+
+// GetDisplayConfig 获取显示配置
+func (c *Config) GetDisplayConfig() DisplayConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Display
+}
+
+// GetImportConfig 获取导入配置
+func (c *Config) GetImportConfig() ImportConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Import
 }

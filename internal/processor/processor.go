@@ -7,8 +7,6 @@ import (
 	"log-processor/internal/config"
 	"log-processor/internal/models"
 	"math/rand"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 )
@@ -30,19 +28,17 @@ type ProcessorStats struct {
 
 // Processor 数据处理器
 type Processor struct {
-	config      config.ProcessorConfig
-	inputChan   chan string
-	outputChan  chan *models.LogEntry
-	parser      Parser
-	storage     Storage
-	cleanRules  []CleanRule
-	filterRules []FilterRule
-	wg          sync.WaitGroup
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.RWMutex
-	stopped     bool
-	stats       ProcessorStats
+	config     config.ProcessorConfig
+	inputChan  chan string
+	outputChan chan *models.LogEntry
+	parser     Parser
+	storage    Storage
+	wg         sync.WaitGroup
+	ctx        context.Context
+	cancel     context.CancelFunc
+	mu         sync.RWMutex
+	stopped    bool
+	stats      ProcessorStats
 }
 
 // Parser 解析器接口
@@ -53,22 +49,6 @@ type Parser interface {
 // Storage 存储接口
 type Storage interface {
 	SaveBatch(entries []*models.LogEntry) error
-}
-
-// CleanRule 清洗规则
-type CleanRule struct {
-	Field     string
-	Operation string // trim, remove, replace, regex
-	Value     string
-	Regex     *regexp.Regexp
-}
-
-// FilterRule 过滤规则
-type FilterRule struct {
-	Field    string
-	Operator string // eq, ne, gt, lt, contains, regex
-	Value    string
-	Regex    *regexp.Regexp
 }
 
 // NewProcessor 创建新的处理器
@@ -86,49 +66,19 @@ func NewProcessor(cfg config.ProcessorConfig, parser Parser, storage Storage) *P
 	}
 
 	p := &Processor{
-		config:      cfg,
-		inputChan:   make(chan string, queueSize),
-		outputChan:  make(chan *models.LogEntry, queueSize),
-		parser:      parser,
-		storage:     storage,
-		cleanRules:  make([]CleanRule, 0),
-		filterRules: make([]FilterRule, 0),
-		ctx:         ctx,
-		cancel:      cancel,
+		config:     cfg,
+		inputChan:  make(chan string, queueSize),
+		outputChan: make(chan *models.LogEntry, queueSize),
+		parser:     parser,
+		storage:    storage,
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 
-	p.initRules(cfg)
 	return p
 }
 
-// initRules 初始化规则
-func (p *Processor) initRules(cfg config.ProcessorConfig) {
-	// 转换清洗规则
-	for _, rule := range cfg.CleanRules {
-		cleanRule := CleanRule{
-			Field:     rule.Field,
-			Operation: rule.Operation,
-			Value:     rule.Value,
-		}
-		if rule.Operation == "regex" && rule.Value != "" {
-			cleanRule.Regex = regexp.MustCompile(rule.Value)
-		}
-		p.cleanRules = append(p.cleanRules, cleanRule)
-	}
 
-	// 转换过滤规则
-	for _, rule := range cfg.FilterRules {
-		filterRule := FilterRule{
-			Field:    rule.Field,
-			Operator: rule.Operator,
-			Value:    rule.Value,
-		}
-		if rule.Operator == "regex" && rule.Value != "" {
-			filterRule.Regex = regexp.MustCompile(rule.Value)
-		}
-		p.filterRules = append(p.filterRules, filterRule)
-	}
-}
 
 // Start 启动处理器
 func (p *Processor) Start() {
@@ -236,14 +186,6 @@ func (p *Processor) processLine(line string) {
 		return
 	}
 
-	// 清洗
-	p.clean(entry)
-
-	// 过滤
-	if !p.filter(entry) {
-		return
-	}
-
 	// 输出
 	select {
 	case p.outputChan <- entry:
@@ -251,91 +193,6 @@ func (p *Processor) processLine(line string) {
 		p.stats.ProcessedCount++
 		p.mu.Unlock()
 	case <-p.ctx.Done():
-	}
-}
-
-// clean 清洗数据
-func (p *Processor) clean(entry *models.LogEntry) {
-	for _, rule := range p.cleanRules {
-		p.applyCleanRule(entry, rule)
-	}
-}
-
-// applyCleanRule 应用清洗规则
-func (p *Processor) applyCleanRule(entry *models.LogEntry, rule CleanRule) {
-	value := p.getFieldValue(entry, rule.Field)
-	if value == "" {
-		return
-	}
-
-	var newValue string
-	switch rule.Operation {
-	case "trim":
-		newValue = strings.TrimSpace(value)
-	case "remove":
-		newValue = strings.ReplaceAll(value, rule.Value, "")
-	case "replace":
-		parts := strings.SplitN(rule.Value, "|", 2)
-		if len(parts) == 2 {
-			newValue = strings.ReplaceAll(value, parts[0], parts[1])
-		}
-	case "regex":
-		if rule.Regex != nil {
-			newValue = rule.Regex.ReplaceAllString(value, rule.Value)
-		}
-	case "lowercase":
-		newValue = strings.ToLower(value)
-	case "uppercase":
-		newValue = strings.ToUpper(value)
-	default:
-		return
-	}
-
-	p.setFieldValue(entry, rule.Field, newValue)
-}
-
-// filter 过滤数据
-func (p *Processor) filter(entry *models.LogEntry) bool {
-	if len(p.filterRules) == 0 {
-		return true
-	}
-
-	for _, rule := range p.filterRules {
-		if !p.applyFilterRule(entry, rule) {
-			return false
-		}
-	}
-	return true
-}
-
-// applyFilterRule 应用过滤规则
-func (p *Processor) applyFilterRule(entry *models.LogEntry, rule FilterRule) bool {
-	value := p.getFieldValue(entry, rule.Field)
-
-	switch rule.Operator {
-	case "eq":
-		return value == rule.Value
-	case "ne":
-		return value != rule.Value
-	case "gt":
-		return value > rule.Value
-	case "lt":
-		return value < rule.Value
-	case "contains":
-		return strings.Contains(value, rule.Value)
-	case "not_contains":
-		return !strings.Contains(value, rule.Value)
-	case "regex":
-		if rule.Regex != nil {
-			return rule.Regex.MatchString(value)
-		}
-		return false
-	case "empty":
-		return value == ""
-	case "not_empty":
-		return value != ""
-	default:
-		return true
 	}
 }
 
@@ -442,9 +299,6 @@ func (p *Processor) saveBatch(batch []*models.LogEntry) {
 // UpdateConfig 更新配置
 func (p *Processor) UpdateConfig(cfg config.ProcessorConfig) {
 	p.config = cfg
-	p.cleanRules = make([]CleanRule, 0)
-	p.filterRules = make([]FilterRule, 0)
-	p.initRules(cfg)
 }
 
 // SetParser 设置解析器

@@ -1609,6 +1609,315 @@ input:checked + .slider:before {
   font-size: 12px;
 }
 
+/* 性能预设卡片 */
+.preset-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.preset-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.preset-card:hover {
+  border-color: var(--primary-light);
+  background: var(--primary-bg);
+}
+
+.preset-card.active {
+  border-color: var(--primary);
+  background: var(--primary-bg);
+}
+
+.preset-card .preset-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: white;
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+}
+
+.preset-card.active .preset-icon {
+  background: var(--primary-dark);
+}
+
+.preset-card .preset-info {
+  flex: 1;
+}
+
+.preset-card .preset-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.preset-card .preset-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 紧凖配置 */
+.compact-configs {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.compact-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.compact-item label {
+  width: 100px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.compact-item input[type="range"] {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  background: var(--gray-4);
+  border-radius: 3px;
+  outline: none;
+}
+
+.compact-item input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--primary);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.value-badge {
+  min-width: 50px;
+  padding: 4px 12px;
+  background: var(--primary);
+  color: white;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* 接收器开关 */
+.receiver-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.switch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.switch-item .switch-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.switch-item .switch-info > i {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-bg);
+  color: var(--primary);
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+}
+
+.switch-item .switch-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.switch-item .switch-desc {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* 端口配置 */
+.port-configs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.port-item label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.port-item input {
+  width: 100%;
+}
+
+/* 安全配置 */
+.security-configs {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.security-configs .form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.security-configs .token-input {
+  display: flex;
+  gap: 8px;
+}
+
+.security-configs .token-input input {
+  flex: 1;
+}
+
+.security-configs .btn-generate {
+  padding: 0 16px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.security-configs .btn-generate:hover {
+  background: var(--primary-dark);
+}
+
+/* 存储信息 */
+.storage-info {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.info-item > i {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-bg);
+  color: var(--primary);
+  border-radius: var(--radius-sm);
+  font-size: 18px;
+}
+
+.info-item .info-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+
+.info-item .info-value {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 保留策略紧凑版 */
+.retention-options.compact {
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.retention-options.compact .retention-btn {
+  padding: 12px 8px;
+}
+
+.retention-options.compact .retention-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 数据操作 */
+.data-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.data-actions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 响应式调整 */
+@media (max-width: 1024px) {
+  .preset-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .port-configs {
+    grid-template-columns: 1fr;
+  }
+  
+  .storage-info {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .preset-cards {
+    grid-template-columns: 1fr;
+  }
+  
+  .compact-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .compact-item label {
+    width: auto;
+  }
+  
+  .compact-item input[type="range"] {
+    width: 100%;
+  }
+}
+
 /* 配置操作区 */
 .config-actions {
   display: flex;

@@ -293,262 +293,127 @@
             <section id="config" class="tab-content">
                 <!-- 配置标签页 -->
                 <div class="config-tabs">
-                    <button class="config-tab active" data-config="parser">
+                    <button class="config-tab active" data-config="processor">
                         <div class="tab-header">
-                            <div class="tab-icon"><i class="fas fa-code"></i></div>
-                            <div class="tab-title">解析配置</div>
-                        </div>
-                        <div class="tab-desc">日志格式与字段映射</div>
-                    </button>
-                    <button class="config-tab" data-config="processor">
-                        <div class="tab-header">
-                            <div class="tab-icon"><i class="fas fa-cogs"></i></div>
+                            <div class="tab-icon"><i class="fas fa-microchip"></i></div>
                             <div class="tab-title">处理配置</div>
                         </div>
-                        <div class="tab-desc">Worker与规则设置</div>
+                        <div class="tab-desc">性能与并发设置</div>
                     </button>
                     <button class="config-tab" data-config="receiver">
                         <div class="tab-header">
                             <div class="tab-icon"><i class="fas fa-network-wired"></i></div>
                             <div class="tab-title">接收器配置</div>
                         </div>
-                        <div class="tab-desc">TCP/UDP/HTTP端口</div>
+                        <div class="tab-desc">端口与协议设置</div>
                     </button>
                     <button class="config-tab" data-config="storage">
                         <div class="tab-header">
                             <div class="tab-icon"><i class="fas fa-database"></i></div>
                             <div class="tab-title">存储配置</div>
                         </div>
-                        <div class="tab-desc">SQLite与保留策略</div>
+                        <div class="tab-desc">数据保留策略</div>
                     </button>
                 </div>
 
-                <!-- 解析配置 -->
-                <div id="config-parser" class="config-panel active">
-                    <!-- 格式选择卡片 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-file-code"></i> 日志格式</div>
-                        <div class="format-selector">
-                            <button type="button" class="format-card active" data-format="nginx">
-                                <i class="fab fa-linux"></i>
-                                <span>Nginx</span>
-                            </button>
-                            <button type="button" class="format-card" data-format="apache">
-                                <i class="fas fa-server"></i>
-                                <span>Apache</span>
-                            </button>
-                            <button type="button" class="format-card" data-format="json">
-                                <i class="fas fa-code"></i>
-                                <span>JSON</span>
-                            </button>
-                            <button type="button" class="format-card" data-format="csv">
-                                <i class="fas fa-file-csv"></i>
-                                <span>CSV</span>
-                            </button>
-                            <button type="button" class="format-card" data-format="custom">
-                                <i class="fas fa-cog"></i>
-                                <span>自定义</span>
-                            </button>
-                        </div>
-                        <input type="hidden" id="parser-format" value="nginx">
-                    </div>
-
-                    <!-- 分隔符 -->
-                    <div class="config-section" id="delimiter-section">
-                        <div class="section-title"><i class="fas fa-cut"></i> 字段分隔符</div>
-                        <div class="delimiter-options">
-                            <button type="button" class="delimiter-btn" data-value=" ">
-                                <span class="delimiter-preview">␣</span>
-                                <span>空格</span>
-                            </button>
-                            <button type="button" class="delimiter-btn" data-value=",">
-                                <span class="delimiter-preview">,</span>
-                                <span>逗号</span>
-                            </button>
-                            <button type="button" class="delimiter-btn" data-value="\t">
-                                <span class="delimiter-preview">↹</span>
-                                <span>制表符</span>
-                            </button>
-                            <button type="button" class="delimiter-btn" data-value="|">
-                                <span class="delimiter-preview">|</span>
-                                <span>竖线</span>
-                            </button>
-                            <div class="delimiter-custom">
-                                <span>自定义:</span>
-                                <input type="text" id="parser-delimiter" class="form-input" value=" " placeholder="输入字符">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 时间格式 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-clock"></i> 时间格式</div>
-                        <div class="time-format-cards" id="time-format-cards">
-                            <!-- JS生成 -->
-                        </div>
-                        <input type="hidden" id="parser-time-format" value="02/Jan/2006:15:04:05 -0700">
-                        <div class="preview-box">
-                            <i class="fas fa-eye"></i>
-                            <div>
-                                <div class="preview-label">预览效果</div>
-                                <code id="preview-value">04/Mar/2024:10:30:00 +0800</code>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 字段映射 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-project-diagram"></i> 字段映射</div>
-                        <div class="mapping-editor">
-                            <div class="mapping-list" id="mapping-list">
-                                <!-- JS动态生成 -->
-                            </div>
-                            <button type="button" class="btn-add-mapping" onclick="addMappingRow()">
-                                <i class="fas fa-plus"></i> 添加映射
-                            </button>
-                        </div>
-                        <textarea id="parser-mapping" class="form-textarea" rows="4" style="display: none;">{
-  "0": "client_ip",
-  "3": "timestamp",
-  "4": "method",
-  "5": "path"
-}</textarea>
-                    </div>
-                </div>
-
                 <!-- 处理配置 -->
-                <div id="config-processor" class="config-panel" style="display: none;">
-                    <!-- Worker配置卡片 -->
+                <div id="config-processor" class="config-panel active">
+                    <!-- 性能预设 -->
                     <div class="config-section">
-                        <div class="section-title"><i class="fas fa-microchip"></i> Worker配置</div>
-                        <div class="processor-cards">
-                            <div class="processor-card">
-                                <div class="card-icon workers"><i class="fas fa-users"></i></div>
-                                <div class="card-content">
-                                    <label>工作协程数</label>
-                                    <div class="number-input">
-                                        <button type="button" onclick="adjustNumber('processor-workers', -1)"><i class="fas fa-minus"></i></button>
-                                        <input type="number" id="processor-workers" value="10" min="1" max="100">
-                                        <button type="button" onclick="adjustNumber('processor-workers', 1)"><i class="fas fa-plus"></i></button>
-                                    </div>
-                                    <div class="card-hint">并行处理日志的协程数量</div>
+                        <div class="section-title"><i class="fas fa-rocket"></i> 性能模式</div>
+                        <div class="preset-cards">
+                            <div class="preset-card" data-preset="dev" onclick="applyPreset('dev')">
+                                <div class="preset-icon"><i class="fas fa-bug"></i></div>
+                                <div class="preset-info">
+                                    <div class="preset-name">开发模式</div>
+                                    <div class="preset-desc">2 Workers, 小批次, 快响应</div>
                                 </div>
                             </div>
-                            <div class="processor-card">
-                                <div class="card-icon batch"><i class="fas fa-layer-group"></i></div>
-                                <div class="card-content">
-                                    <label>批处理大小</label>
-                                    <div class="number-input">
-                                        <button type="button" onclick="adjustNumber('processor-batch-size', -10)"><i class="fas fa-minus"></i></button>
-                                        <input type="number" id="processor-batch-size" value="100" min="10" max="10000" step="10">
-                                        <button type="button" onclick="adjustNumber('processor-batch-size', 10)"><i class="fas fa-plus"></i></button>
-                                    </div>
-                                    <div class="card-hint">每批写入数据库的日志数</div>
+                            <div class="preset-card active" data-preset="standard" onclick="applyPreset('standard')">
+                                <div class="preset-icon"><i class="fas fa-balance-scale"></i></div>
+                                <div class="preset-info">
+                                    <div class="preset-name">标准模式</div>
+                                    <div class="preset-desc">10 Workers, 平衡配置</div>
                                 </div>
                             </div>
-                            <div class="processor-card">
-                                <div class="card-icon timeout"><i class="fas fa-stopwatch"></i></div>
-                                <div class="card-content">
-                                    <label>批处理超时</label>
-                                    <div class="number-input">
-                                        <button type="button" onclick="adjustNumber('processor-timeout', -100)"><i class="fas fa-minus"></i></button>
-                                        <input type="number" id="processor-timeout" value="1000" min="10" max="60000" step="10">
-                                        <button type="button" onclick="adjustNumber('processor-timeout', 100)"><i class="fas fa-plus"></i></button>
-                                    </div>
-                                    <div class="card-hint">最长等待时间（毫秒）</div>
+                            <div class="preset-card" data-preset="high" onclick="applyPreset('high')">
+                                <div class="preset-icon"><i class="fas fa-tachometer-alt"></i></div>
+                                <div class="preset-info">
+                                    <div class="preset-name">高性能</div>
+                                    <div class="preset-desc">20 Workers, 大批次</div>
+                                </div>
+                            </div>
+                            <div class="preset-card" data-preset="ultra" onclick="applyPreset('ultra')">
+                                <div class="preset-icon"><i class="fas fa-bolt"></i></div>
+                                <div class="preset-info">
+                                    <div class="preset-name">超高性能</div>
+                                    <div class="preset-desc">50 Workers, 极限吞吐</div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 清洗规则 -->
+                    <!-- 详细配置 -->
                     <div class="config-section">
-                        <div class="section-title">
-                            <i class="fas fa-broom"></i> 清洗规则
-                            <span class="section-desc">对字段进行预处理（如trim、lower等）</span>
+                        <div class="section-title"><i class="fas fa-sliders-h"></i> 详细配置</div>
+                        <div class="compact-configs">
+                            <div class="compact-item">
+                                <label>工作协程</label>
+                                <input type="range" id="processor-workers" min="1" max="100" value="10" oninput="updateSliderValue('processor-workers', this.value)">
+                                <span class="value-badge" id="processor-workers-value">10</span>
+                            </div>
+                            <div class="compact-item">
+                                <label>批处理大小</label>
+                                <input type="range" id="processor-batch-size" min="10" max="1000" step="10" value="100" oninput="updateSliderValue('processor-batch-size', this.value)">
+                                <span class="value-badge" id="processor-batch-size-value">100</span>
+                            </div>
+                            <div class="compact-item">
+                                <label>批处理超时(ms)</label>
+                                <input type="range" id="processor-timeout" min="100" max="5000" step="100" value="1000" oninput="updateSliderValue('processor-timeout', this.value)">
+                                <span class="value-badge" id="processor-timeout-value">1000</span>
+                            </div>
                         </div>
-                        <div class="rules-editor" id="clean-rules-editor">
-                            <div class="rules-list" id="clean-rules-list"></div>
-                            <button type="button" class="btn-add-rule" onclick="addCleanRule()">
-                                <i class="fas fa-plus"></i> 添加清洗规则
-                            </button>
-                        </div>
-                        <textarea id="processor-clean-rules" class="form-textarea" rows="3" style="display: none;">[{"field": "path", "operation": "trim", "value": ""}]</textarea>
-                    </div>
-
-                    <!-- 过滤规则 -->
-                    <div class="config-section">
-                        <div class="section-title">
-                            <i class="fas fa-filter"></i> 过滤规则
-                            <span class="section-desc">根据条件丢弃不需要的日志</span>
-                        </div>
-                        <div class="rules-editor" id="filter-rules-editor">
-                            <div class="rules-list" id="filter-rules-list"></div>
-                            <button type="button" class="btn-add-rule" onclick="addFilterRule()">
-                                <i class="fas fa-plus"></i> 添加过滤规则
-                            </button>
-                        </div>
-                        <textarea id="processor-filter-rules" class="form-textarea" rows="3" style="display: none;">[{"field": "status_code", "operator": "ne", "value": "404"}]</textarea>
                     </div>
                 </div>
 
                 <!-- 接收器配置 -->
                 <div id="config-receiver" class="config-panel" style="display: none;">
-                    <!-- TCP/UDP 卡片 -->
+                    <!-- 接收器开关 -->
                     <div class="config-section">
-                        <div class="section-title"><i class="fas fa-ethernet"></i> TCP/UDP 接收器</div>
-                        <div class="receiver-cards">
-                            <div class="receiver-card">
-                                <div class="receiver-header">
-                                    <div class="receiver-info">
-                                        <i class="fas fa-network-wired"></i>
-                                        <div>
-                                            <div class="receiver-name">TCP 接收器</div>
-                                            <div class="receiver-desc">可靠传输，适合重要日志</div>
-                                        </div>
+                        <div class="section-title"><i class="fas fa-power-off"></i> 接收器开关</div>
+                        <div class="receiver-switches">
+                            <div class="switch-item">
+                                <div class="switch-info">
+                                    <i class="fas fa-network-wired"></i>
+                                    <div>
+                                        <div class="switch-name">TCP 接收器</div>
+                                        <div class="switch-desc">可靠传输，适合重要日志</div>
                                     </div>
-                                    <label class="switch">
-                                        <input type="checkbox" id="receiver-tcp" checked>
-                                        <span class="slider"></span>
-                                    </label>
                                 </div>
-                                <div class="receiver-config">
-                                    <label>端口号</label>
-                                    <input type="number" id="receiver-tcp-port" value="9000" min="1" max="65535" class="form-input">
-                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="receiver-tcp" checked>
+                                    <span class="slider"></span>
+                                </label>
                             </div>
-                            <div class="receiver-card">
-                                <div class="receiver-header">
-                                    <div class="receiver-info">
-                                        <i class="fas fa-broadcast-tower"></i>
-                                        <div>
-                                            <div class="receiver-name">UDP 接收器</div>
-                                            <div class="receiver-desc">高速传输，允许少量丢失</div>
-                                        </div>
+                            <div class="switch-item">
+                                <div class="switch-info">
+                                    <i class="fas fa-broadcast-tower"></i>
+                                    <div>
+                                        <div class="switch-name">UDP 接收器</div>
+                                        <div class="switch-desc">高速传输，允许少量丢失</div>
                                     </div>
-                                    <label class="switch">
-                                        <input type="checkbox" id="receiver-udp" checked>
-                                        <span class="slider"></span>
-                                    </label>
                                 </div>
-                                <div class="receiver-config">
-                                    <label>端口号</label>
-                                    <input type="number" id="receiver-udp-port" value="9001" min="1" max="65535" class="form-input">
-                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="receiver-udp" checked>
+                                    <span class="slider"></span>
+                                </label>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- HTTP 卡片 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-globe"></i> HTTP 接收器</div>
-                        <div class="receiver-card http">
-                            <div class="receiver-header">
-                                <div class="receiver-info">
+                            <div class="switch-item">
+                                <div class="switch-info">
                                     <i class="fas fa-globe"></i>
                                     <div>
-                                        <div class="receiver-name">HTTP API</div>
-                                        <div class="receiver-desc">RESTful接口，支持批量提交</div>
+                                        <div class="switch-name">HTTP 接收器</div>
+                                        <div class="switch-desc">RESTful接口，支持批量提交</div>
                                     </div>
                                 </div>
                                 <label class="switch">
@@ -556,137 +421,116 @@
                                     <span class="slider"></span>
                                 </label>
                             </div>
-                            <div class="receiver-config-row">
-                                <div class="form-group">
-                                    <label>端口号</label>
-                                    <input type="number" id="receiver-http-port" value="9002" min="1" max="65535" class="form-input">
-                                </div>
-                                <div class="form-group">
-                                    <label>速率限制 <span class="hint">(请求/分钟, 0=不限制)</span></label>
-                                    <input type="number" id="receiver-http-rate" value="0" min="0" max="100000" class="form-input">
-                                </div>
+                        </div>
+                    </div>
+
+                    <!-- 端口配置 -->
+                    <div class="config-section">
+                        <div class="section-title"><i class="fas fa-plug"></i> 端口配置</div>
+                        <div class="port-configs">
+                            <div class="port-item">
+                                <label>TCP 端口</label>
+                                <input type="number" id="receiver-tcp-port" value="9000" min="1" max="65535" class="form-input">
                             </div>
-                            <div class="form-group">
-                                <label>认证 Token <span class="hint">(留空则不启用)</span></label>
-                                <div class="token-input">
-                                    <input type="text" id="receiver-http-token" class="form-input" placeholder="例如: secret-token-123" autocomplete="off">
-                                    <button type="button" class="btn-generate" onclick="generateToken()">
-                                        <i class="fas fa-key"></i> 生成
-                                    </button>
-                                </div>
+                            <div class="port-item">
+                                <label>UDP 端口</label>
+                                <input type="number" id="receiver-udp-port" value="9001" min="1" max="65535" class="form-input">
                             </div>
-                            <div class="form-group">
-                                <label>IP 白名单 <span class="hint">(逗号分隔，留空允许所有)</span></label>
-                                <input type="text" id="receiver-http-ips" class="form-input" placeholder="例如: 127.0.0.1, 192.168.1.100">
+                            <div class="port-item">
+                                <label>HTTP 端口</label>
+                                <input type="number" id="receiver-http-port" value="9002" min="1" max="65535" class="form-input">
                             </div>
                         </div>
                     </div>
 
-                    <!-- 通用配置 -->
+                    <!-- 安全配置 -->
                     <div class="config-section">
-                        <div class="section-title"><i class="fas fa-sliders-h"></i> 通用配置</div>
-                        <div class="buffer-config">
-                            <label>缓冲区大小</label>
-                            <div class="buffer-options">
-                                <button type="button" class="buffer-btn" data-value="4096">4 KB</button>
-                                <button type="button" class="buffer-btn" data-value="8192">8 KB</button>
-                                <button type="button" class="buffer-btn active" data-value="16384">16 KB</button>
-                                <button type="button" class="buffer-btn" data-value="32768">32 KB</button>
-                                <button type="button" class="buffer-btn" data-value="65536">64 KB</button>
+                        <div class="section-title"><i class="fas fa-shield-alt"></i> 安全配置</div>
+                        <div class="security-configs">
+                            <div class="form-group">
+                                <label>HTTP Token 认证 (留空不启用)</label>
+                                <div class="token-input">
+                                    <input type="text" id="receiver-http-token" class="form-input" placeholder="输入认证 Token" autocomplete="off">
+                                    <button type="button" class="btn-generate" onclick="generateToken()">
+                                        <i class="fas fa-key"></i>
+                                    </button>
+                                </div>
                             </div>
-                            <input type="hidden" id="receiver-buffer" value="16384">
+                            <div class="form-group">
+                                <label>IP 白名单 (逗号分隔，留空允许所有)</label>
+                                <input type="text" id="receiver-http-ips" class="form-input" placeholder="127.0.0.1, 192.168.1.0/24">
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- 存储配置 -->
                 <div id="config-storage" class="config-panel" style="display: none;">
-                    <!-- 数据库信息卡片 -->
+                    <!-- 存储信息 -->
                     <div class="config-section">
-                        <div class="section-title"><i class="fas fa-database"></i> 存储引擎</div>
-                        <div class="storage-engine-card">
-                            <div class="engine-icon">
+                        <div class="section-title"><i class="fas fa-info-circle"></i> 存储信息</div>
+                        <div class="storage-info">
+                            <div class="info-item">
                                 <i class="fas fa-database"></i>
-                            </div>
-                            <div class="engine-info">
-                                <div class="engine-name">SQLite</div>
-                                <div class="engine-desc">轻量级文件型数据库，零配置，单文件存储</div>
-                                <div class="engine-features">
-                                    <span class="feature-tag"><i class="fas fa-check"></i> 无需安装</span>
-                                    <span class="feature-tag"><i class="fas fa-check"></i> 单文件</span>
-                                    <span class="feature-tag"><i class="fas fa-check"></i> 跨平台</span>
+                                <div>
+                                    <div class="info-label">引擎</div>
+                                    <div class="info-value">SQLite</div>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- 存储路径 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-folder-open"></i> 存储位置</div>
-                        <div class="storage-path-card">
-                            <div class="path-icon">
+                            <div class="info-item">
+                                <i class="fas fa-folder"></i>
+                                <div>
+                                    <div class="info-label">路径</div>
+                                    <div class="info-value" id="storage-path-text">./data/logs.db</div>
+                                </div>
+                            </div>
+                            <div class="info-item">
                                 <i class="fas fa-hdd"></i>
-                            </div>
-                            <div class="path-content">
-                                <div class="path-value">
-                                    <i class="fas fa-folder"></i>
-                                    <span id="storage-path-text">./data/logs.db</span>
+                                <div>
+                                    <div class="info-label">大小</div>
+                                    <div class="info-value" id="storage-size">--</div>
                                 </div>
-                                <div class="path-hint">数据库文件保存在项目 data 目录下</div>
                             </div>
-                            <button type="button" class="btn-copy" onclick="copyPath()" title="复制路径">
-                                <i class="fas fa-copy"></i>
-                            </button>
                         </div>
                         <input type="hidden" id="storage-db-path" value="./data/logs.db">
                     </div>
 
                     <!-- 保留策略 -->
                     <div class="config-section">
-                        <div class="section-title">
-                            <i class="fas fa-history"></i> 数据保留策略
-                            <span class="section-desc">超过设定时间的日志将自动清理</span>
-                        </div>
-                        <div class="retention-options">
+                        <div class="section-title"><i class="fas fa-clock"></i> 保留策略</div>
+                        <div class="retention-options compact">
                             <button type="button" class="retention-btn" data-hours="24" onclick="setRetention(24)">
-                                <div class="retention-icon"><i class="fas fa-sun"></i></div>
                                 <div class="retention-label">1天</div>
-                                <div class="retention-desc">适合测试环境</div>
                             </button>
                             <button type="button" class="retention-btn" data-hours="168" onclick="setRetention(168)">
-                                <div class="retention-icon"><i class="fas fa-calendar-week"></i></div>
                                 <div class="retention-label">1周</div>
-                                <div class="retention-desc">开发环境推荐</div>
                             </button>
                             <button type="button" class="retention-btn active" data-hours="720" onclick="setRetention(720)">
-                                <div class="retention-icon"><i class="fas fa-calendar-alt"></i></div>
                                 <div class="retention-label">30天</div>
-                                <div class="retention-desc">生产环境常用</div>
                             </button>
                             <button type="button" class="retention-btn" data-hours="2160" onclick="setRetention(2160)">
-                                <div class="retention-icon"><i class="fas fa-history"></i></div>
                                 <div class="retention-label">3个月</div>
-                                <div class="retention-desc">长期存储需求</div>
                             </button>
                             <button type="button" class="retention-btn" data-hours="8760" onclick="setRetention(8760)">
-                                <div class="retention-icon"><i class="fas fa-archive"></i></div>
                                 <div class="retention-label">1年</div>
-                                <div class="retention-desc">归档合规要求</div>
                             </button>
                         </div>
                         <div class="retention-custom">
-                            <span>自定义:</span>
                             <input type="number" id="storage-retention" value="720" min="1" max="8760" class="form-input">
                             <span>小时</span>
                         </div>
                     </div>
 
-                    <!-- 备份提示 -->
-                    <div class="storage-tip">
-                        <i class="fas fa-lightbulb"></i>
-                        <div>
-                            <div class="tip-title">备份提示</div>
-                            <div class="tip-content">如需备份，直接复制 <code>./data/logs.db</code> 文件到安全位置即可。建议定期备份重要数据。</div>
+                    <!-- 数据管理 -->
+                    <div class="config-section">
+                        <div class="section-title"><i class="fas fa-tools"></i> 数据管理</div>
+                        <div class="data-actions">
+                            <button type="button" class="btn btn-secondary" onclick="copyPath()">
+                                <i class="fas fa-copy"></i> 复制路径
+                            </button>
+                            <button type="button" class="btn btn-warning" onclick="compactDB()">
+                                <i class="fas fa-compress"></i> 压缩数据库
+                            </button>
                         </div>
                     </div>
                 </div>

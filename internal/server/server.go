@@ -117,6 +117,10 @@ func (s *Server) setupRoutes() {
 		// 接收器控制
 		api.POST("/receiver/start", s.startReceiver)
 		api.POST("/receiver/stop", s.stopReceiver)
+
+		// 存储管理
+		api.GET("/storage/info", s.getStorageInfo)
+		api.POST("/storage/compact", s.compactStorage)
 	}
 }
 
@@ -195,6 +199,21 @@ func (s *Server) updateConfig(c *gin.Context) {
 	}
 	log.Printf("[INFO] 配置已保存到: %s", s.configPath)
 
+	// 在更新配置前，先获取旧的接收器配置
+	oldRecvCfg := s.config.Get().Receiver
+	newRecvCfg := newConfig.Receiver
+	receiverChanged := !compareReceiverConfig(oldRecvCfg, newRecvCfg)
+	
+	log.Printf("[DEBUG] 旧接收器配置: TCP=%v:%d UDP=%v:%d HTTP=%v:%d", 
+		oldRecvCfg.TCPEnabled, oldRecvCfg.TCPPort,
+		oldRecvCfg.UDPEnabled, oldRecvCfg.UDPPort,
+		oldRecvCfg.HTTPEnabled, oldRecvCfg.HTTPPort)
+	log.Printf("[DEBUG] 新接收器配置: TCP=%v:%d UDP=%v:%d HTTP=%v:%d", 
+		newRecvCfg.TCPEnabled, newRecvCfg.TCPPort,
+		newRecvCfg.UDPEnabled, newRecvCfg.UDPPort,
+		newRecvCfg.HTTPEnabled, newRecvCfg.HTTPPort)
+	log.Printf("[DEBUG] 接收器配置是否变更: %v", receiverChanged)
+	
 	// 更新解析器配置
 	s.parser.SetConfig(newConfig.Parser)
 
@@ -203,6 +222,20 @@ func (s *Server) updateConfig(c *gin.Context) {
 	
 	// 更新处理器的解析器（因为解析器配置已改变）
 	s.processor.SetParser(s.parser)
+
+	// 如果接收器配置变更，重启接收器
+	if receiverChanged {
+		log.Printf("[INFO] 接收器配置已变更，正在重启接收器...")
+		if err := s.restartReceivers(newRecvCfg); err != nil {
+			log.Printf("[ERROR] 重启接收器失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": "partial",
+				"message": "配置已更新，但接收器重启动失败: " + err.Error(),
+			})
+			return
+		}
+		log.Printf("[OK] 接收器已重新启动")
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -307,7 +340,6 @@ func (s *Server) importLogs(c *gin.Context) {
 
 	// 检测文件格式（跳过注释行和空行）
 	detectedFormat := detectFileFormat(lines)
-	log.Printf("[IMPORT] 检测到文件格式: %s, 当前配置: %s", detectedFormat, currentFormat)
 
 	// 检查格式是否匹配
 	if !isFormatCompatible(detectedFormat, currentFormat) {
@@ -407,13 +439,6 @@ func (s *Server) importLogs(c *gin.Context) {
 			actualImported, successCount-int(actualImported))
 	}
 	
-	if detectedFormat != currentFormat && detectedFormat != "unknown" {
-		if warningMsg != "" {
-			warningMsg += "；"
-		}
-		warningMsg += fmt.Sprintf("检测到%s格式，当前配置为%s", detectedFormat, currentFormat)
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"status":     responseStatus,
 		"lines":      len(lines),
@@ -479,6 +504,11 @@ func detectLogFormat(line string) string {
 
 // isFormatCompatible 检查文件格式与配置是否兼容
 func isFormatCompatible(fileFormat, configFormat string) bool {
+	// 空配置或 auto 模式自动识别所有格式
+	if configFormat == "" || configFormat == "auto" {
+		return true
+	}
+
 	// 完全匹配
 	if fileFormat == configFormat {
 		return true
@@ -587,20 +617,18 @@ func (s *Server) exportLogs(c *gin.Context) {
 		filename = fmt.Sprintf("logs_%s", time.Now().Format("20060102_150405"))
 	}
 
-	exporter, ok := s.exportManager.GetExporter(format)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported format"})
-		return
-	}
-
-	outputPath := filepath.Join("./exports", filename+exporter.GetExtension())
-	if err := exporter.Export(entries, outputPath); err != nil {
+	outputPath := filepath.Join("./exports", filename+getExtension(format))
+	contentType, err := s.exportManager.Export(entries, format, outputPath, &exporter.ExportOptions{
+		TimeFormat: time.RFC3339,
+	})
+	if err != nil {
 		log.Printf("[EXPORT] 导出失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	_ = contentType
 
-	c.FileAttachment(outputPath, filename+exporter.GetExtension())
+	c.FileAttachment(outputPath, filename+getExtension(format))
 }
 
 // getExportFormats 获取支持的导出格式
@@ -723,4 +751,137 @@ func getAccessDescription(statusCode int, method, path string) string {
 	}
 	
 	return "[未知操作]"
+}
+
+// compareReceiverConfig 比较两个接收器配置是否相同
+func compareReceiverConfig(a, b config.ReceiverConfig) bool {
+	if a.TCPEnabled != b.TCPEnabled || a.TCPPort != b.TCPPort {
+		return false
+	}
+	if a.UDPEnabled != b.UDPEnabled || a.UDPPort != b.UDPPort {
+		return false
+	}
+	if a.HTTPEnabled != b.HTTPEnabled || a.HTTPPort != b.HTTPPort {
+		return false
+	}
+	if a.HTTPAuthToken != b.HTTPAuthToken {
+		return false
+	}
+	if a.HTTPRateLimit != b.HTTPRateLimit {
+		return false
+	}
+	if a.BufferSize != b.BufferSize {
+		return false
+	}
+	// 比较IP白名单
+	if len(a.HTTPAllowedIPs) != len(b.HTTPAllowedIPs) {
+		return false
+	}
+	for i, ip := range a.HTTPAllowedIPs {
+		if ip != b.HTTPAllowedIPs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// restartReceivers 重启接收器
+func (s *Server) restartReceivers(newCfg config.ReceiverConfig) error {
+	// 停止当前接收器
+	if err := s.receiver.Stop(); err != nil {
+		log.Printf("[WARN] 停止接收器时出现错误: %v", err)
+		// 继续，尝试启动新的接收器
+	}
+	
+	// 创建新的接收器管理器
+	s.receiver = receiver.NewManager(newCfg)
+	
+	// 启动新的接收器
+	err := s.receiver.Start(func(line string) bool {
+		if !s.processor.Submit(line) {
+			log.Printf("处理器队列已满，丢弃日志: %s", line[:min(50, len(line))])
+			return false
+		}
+		return true
+	})
+	
+	if err != nil {
+		return fmt.Errorf("启动接收器失败: %v", err)
+	}
+	
+	return nil
+}
+
+// getExtension 获取文件扩展名
+func getExtension(format string) string {
+	switch format {
+	case "excel":
+		return ".xlsx"
+	case "csv":
+		return ".csv"
+	case "json":
+		return ".json"
+	default:
+		return ".xlsx"
+	}
+}
+
+// getStorageInfo 获取存储信息
+func (s *Server) getStorageInfo(c *gin.Context) {
+	info := gin.H{
+		"type": s.config.Get().Storage.Type,
+		"db_path": s.config.Get().Storage.DBPath,
+	}
+
+	// 获取数据库文件大小
+	if s.config.Get().Storage.Type == "sqlite" {
+		dbPath := s.config.Get().Storage.DBPath
+		if stat, err := os.Stat(dbPath); err == nil {
+			info["size_bytes"] = stat.Size()
+		} else {
+			info["size_bytes"] = 0
+		}
+	}
+
+	c.JSON(http.StatusOK, info)
+}
+
+// compactStorage 压缩数据库（释放未使用空间）
+func (s *Server) compactStorage(c *gin.Context) {
+	if s.config.Get().Storage.Type != "sqlite" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only SQLite supports compact"})
+		return
+	}
+
+	// 获取压缩前大小
+	dbPath := s.config.Get().Storage.DBPath
+	var sizeBefore int64
+	if stat, err := os.Stat(dbPath); err == nil {
+		sizeBefore = stat.Size()
+	}
+
+	// 执行VACUUM命令压缩数据库
+	sqliteStorage, ok := s.storage.(*storage.SQLiteStorage)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Storage type mismatch"})
+		return
+	}
+
+	if err := sqliteStorage.Vacuum(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Vacuum failed: " + err.Error()})
+		return
+	}
+
+	// 获取压缩后大小
+	var sizeAfter int64
+	if stat, err := os.Stat(dbPath); err == nil {
+		sizeAfter = stat.Size()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "ok",
+		"size_before_bytes": sizeBefore,
+		"size_after_bytes": sizeAfter,
+		"freed_bytes": sizeBefore - sizeAfter,
+	})
 }

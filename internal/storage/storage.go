@@ -433,6 +433,12 @@ func (s *SQLiteStorage) Clear() error {
 	return err
 }
 
+// Vacuum 压缩数据库，释放未使用的空间
+func (s *SQLiteStorage) Vacuum() error {
+	_, err := s.db.Exec("VACUUM")
+	return err
+}
+
 // Close 关闭存储
 func (s *SQLiteStorage) Close() error {
 	return s.db.Close()
