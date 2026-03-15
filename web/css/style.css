@@ -1791,6 +1791,15 @@ input:checked + .slider:before {
   border-left-color: var(--error);
 }
 
+.result-item.warning {
+  border-left-color: var(--warning);
+}
+
+.result-item.warning .result-icon {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
 .result-item .result-icon {
   width: 40px;
   height: 40px;

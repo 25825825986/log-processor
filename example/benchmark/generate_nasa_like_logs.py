@@ -50,17 +50,33 @@ NASA_PATHS = [
 NASA_STATUS_CODES = [200, 304, 302, 404, 403, 500]
 NASA_STATUS_WEIGHTS = [75, 15, 5, 3, 1, 1]  # NASA 日志中 200 占绝大多数
 
+# HTTP 方法分布（模拟真实场景）
+NASA_METHODS = ["GET", "POST", "HEAD", "PUT", "DELETE"]
+NASA_METHOD_WEIGHTS = [85, 10, 3, 1, 1]  # GET 占绝大多数，但也有少量其他方法
+
+# 用户代理（模拟 1995 年的浏览器）
+NASA_USER_AGENTS = [
+    "Mozilla/1.0 (Windows 3.1)",
+    "Mozilla/1.1 (Windows 95)",
+    "Mozilla/1.22 (Windows 95)",
+    "NCSA Mosaic/2.0 (Windows 3.1)",
+    "NCSA Mosaic/2.6 (X11; SunOS 5.3 sun4m)",
+    "Lynx/2.4 (Unix)",
+    "libwww/2.14",
+    "-"
+]
+
 
 def generate_nasa_log_line(timestamp, seq):
-    """生成一条 NASA 格式的日志"""
+    """生成一条 NASA 格式的日志（扩展版，支持系统解析）"""
     # 随机选择 IP
     host = random.choice(NASA_IPS)
     
     # 时间戳格式: [01/Jul/1995:00:00:01 -0400]
     time_str = timestamp.strftime("%d/%b/%Y:%H:%M:%S -0400")
     
-    # 随机请求
-    method = "GET"  # NASA 日志中绝大多数是 GET
+    # 随机请求方法（不再只是 GET）
+    method = random.choices(NASA_METHODS, weights=NASA_METHOD_WEIGHTS)[0]
     path = random.choice(NASA_PATHS)
     protocol = "HTTP/1.0"
     
@@ -77,7 +93,18 @@ def generate_nasa_log_line(timestamp, seq):
     else:
         size = random.randint(100, 2000)
     
-    return f'{host} - - [{time_str}] "{method} {path} {protocol}" {status} {size}'
+    # 添加 referer 和 user_agent（部分请求有）
+    referer = "-"
+    if random.random() > 0.3:  # 70% 的请求有 referer
+        referer = random.choice(["-", "https://www.nasa.gov/", "https://www.google.com/"])
+    
+    user_agent = random.choice(NASA_USER_AGENTS)
+    
+    # 添加响应时间（毫秒，转换为秒）
+    response_time = round(random.uniform(0.001, 2.0), 3)
+    
+    # 返回完整格式（兼容 Nginx 解析）
+    return f'{host} - - [{time_str}] "{method} {path} {protocol}" {status} {size} "{referer}" "{user_agent}" "{response_time}"'
 
 
 def generate_logs(count, output_path):

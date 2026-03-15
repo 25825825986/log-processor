@@ -488,16 +488,47 @@ async function handleFiles(files) {
             const resultItem = document.createElement('div');
             resultItem.className = 'result-item';
             
-            if (response.ok && result.lines > 0) {
+            if (response.ok && (result.imported > 0 || result.accepted > 0)) {
+                // 确定显示状态
+                const isPartial = result.status === 'partial' || result.imported < result.accepted;
+                const hasWarning = result.warning && result.warning.length > 0;
+                
+                if (isPartial || hasWarning) {
+                    resultItem.classList.add('warning');
+                }
+                
+                // 构建详细信息
+                let detailText = `成功导入 ${result.imported || result.accepted} 条`;
+                if (result.accepted && result.imported && result.accepted !== result.imported) {
+                    detailText = `提交 ${result.accepted} 条，实际导入 ${result.imported} 条`;
+                }
+                if (result.dropped > 0) {
+                    detailText += `（丢弃 ${result.dropped} 条）`;
+                }
+                if (result.warning) {
+                    detailText += `<br><span style="color: var(--warning); font-size: 12px;">${result.warning}</span>`;
+                }
+                
                 resultItem.innerHTML = `
-                    <div class="result-icon"><i class="fas fa-check"></i></div>
+                    <div class="result-icon">${isPartial ? '<i class="fas fa-exclamation-triangle"></i>' : '<i class="fas fa-check"></i>'}</div>
                     <div class="result-info">
                         <div class="result-filename">${file.name}</div>
-                        <div class="result-detail">成功导入 ${result.lines} 条记录</div>
+                        <div class="result-detail">${detailText}</div>
                     </div>
-                    <div class="result-count">${result.lines}</div>
+                    <div class="result-count">${result.imported || result.accepted}</div>
                 `;
-                hasSuccess = true;
+                hasSuccess = result.imported > 0;
+            } else if (result.status === 'warning') {
+                // 格式不匹配警告
+                resultItem.classList.add('warning');
+                resultItem.innerHTML = `
+                    <div class="result-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="result-info">
+                        <div class="result-filename">${file.name}</div>
+                        <div class="result-detail">${result.warning || '格式不匹配'}</div>
+                    </div>
+                    <div class="result-count">0</div>
+                `;
             } else {
                 resultItem.classList.add('error');
                 resultItem.innerHTML = `
@@ -526,6 +557,11 @@ async function handleFiles(files) {
     progressFill.style.width = '100%';
     progressPercent.textContent = '100%';
     resultsSection.style.display = 'block';
+    
+    // 导入完成后隐藏进度条（延迟一段时间让用户看到100%）
+    setTimeout(() => {
+        progressSection.style.display = 'none';
+    }, 1500);
     
     // 如果导入成功，刷新数据
     if (hasSuccess && currentTab === 'dashboard') {

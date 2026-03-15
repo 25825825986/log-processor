@@ -323,28 +323,105 @@ func (s *Server) importLogs(c *gin.Context) {
 		return
 	}
 
-	// 再提交到处理器（跳过注释行和空行）
+	// 获取导入前的日志总数
+	statsBefore, _ := s.storage.Statistics(models.FilterCondition{})
+	countBefore := int64(0)
+	if statsBefore != nil {
+		countBefore = statsBefore.TotalCount
+	}
+	
+	// 再提交到处理理器（跳过注释行和空行）
 	successCount := 0
-	for _, line := range lines {
+	droppedCount := 0
+	batchSize := 1000
+	batchInterval := 100 * time.Millisecond // 每批1小时休息100ms
+	
+	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		// 跳过空行和注释行
 		if len(trimmed) == 0 || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if s.processor.Submit(line) {
-			successCount++
+		
+		// 尝试提交，如果失败（队列满）则等待重试
+		retryCount := 0
+		submitted := false
+		for retryCount < 3 {
+			if s.processor.Submit(line) {
+				successCount++
+				submitted = true
+				break
+			}
+			retryCount++
+			time.Sleep(50 * time.Millisecond) // 短暂等待后重试
+		}
+		
+		if !submitted {
+			droppedCount++
+		}
+		
+		// 每批处理完后休息一下，避免塞满队列
+		if i > 0 && i%batchSize == 0 {
+			time.Sleep(batchInterval)
 		}
 	}
 
+	if droppedCount > 0 {
+		log.Printf("[IMPORT] 警告: 丢弃 %d 条日志（队列满）", droppedCount)
+	}
 	log.Printf("[IMPORT] 成功提交 %d 行到处理器", successCount)
-	// 等待处理器处理完成（简单等待1秒）
-	time.Sleep(1 * time.Second)
+	
+	// 等待处理器处理完成（根据数据量计算等待时间）
+	waitTime := time.Duration(successCount/500+2) * time.Second
+	log.Printf("[IMPORT] 等待 %v 让处理器完成处理...", waitTime)
+	time.Sleep(waitTime)
+	
+	// 获取导入后的实际日志总数
+	statsAfter, _ := s.storage.Statistics(models.FilterCondition{})
+	countAfter := int64(0)
+	if statsAfter != nil {
+		countAfter = statsAfter.TotalCount
+	}
+	actualImported := countAfter - countBefore
+	
+	if actualImported < int64(successCount) {
+		log.Printf("[IMPORT] 警告: 提交 %d 条，实际导入 %d 条（可能有 %d 条解析失败）", 
+			successCount, actualImported, successCount-int(actualImported))
+	}
+	
+	// 确定响应状态
+	responseStatus := "ok"
+	warningMsg := ""
+	
+	if droppedCount > 0 {
+		responseStatus = "partial"
+		warningMsg = fmt.Sprintf("提交 %d 条，丢弃 %d 条（队列满）", successCount, droppedCount)
+	}
+	
+	if actualImported < int64(successCount) {
+		responseStatus = "partial"
+		if warningMsg != "" {
+			warningMsg += "；"
+		}
+		warningMsg += fmt.Sprintf("实际导入 %d 条，% d 条可能格式不匹配", 
+			actualImported, successCount-int(actualImported))
+	}
+	
+	if detectedFormat != currentFormat && detectedFormat != "unknown" {
+		if warningMsg != "" {
+			warningMsg += "；"
+		}
+		warningMsg += fmt.Sprintf("检测到%s格式，当前配置为%s", detectedFormat, currentFormat)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":     "ok",
+		"status":     responseStatus,
 		"lines":      len(lines),
 		"accepted":   successCount,
+		"imported":   actualImported,
+		"dropped":    droppedCount,
 		"file":       file.Filename,
+		"warning":    warningMsg,
 	})
 }
 

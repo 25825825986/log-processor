@@ -15,6 +15,7 @@ import (
 	"log-processor/internal/server"
 	"log-processor/internal/storage"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -112,7 +113,18 @@ func main() {
 	}()
 
 	log.Println("[OK] 系统启动成功！")
-	log.Printf("[WEB] Web界面: http://localhost:%d", cfg.Get().Server.Port)
+	
+	// 自动打开浏览器
+	webURL := fmt.Sprintf("http://localhost:%d", cfg.Get().Server.Port)
+	log.Printf("[WEB] 正在打开浏览器: %s", webURL)
+	go func() {
+		// 等待一下确保服务器完全启动
+		time.Sleep(500 * time.Millisecond)
+		if err := openBrowser(webURL); err != nil {
+			log.Printf("[WARN] 无法自动打开浏览器: %v", err)
+		}
+	}()
+	
 	if cfg.Get().Receiver.TCPEnabled {
 		log.Printf("[TCP] TCP接收器: 端口 %d", cfg.Get().Receiver.TCPPort)
 	}
@@ -204,4 +216,24 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// openBrowser 使用系统默认浏览器打开URL
+func openBrowser(url string) error {
+	var cmd string
+	var args []string
+	
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "cmd"
+		args = []string{"/c", "start", url}
+	case "darwin":
+		cmd = "open"
+		args = []string{url}
+	default: // linux and others
+		cmd = "xdg-open"
+		args = []string{url}
+	}
+	
+	return exec.Command(cmd, args...).Start()
 }
