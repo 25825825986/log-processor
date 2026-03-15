@@ -1,507 +1,264 @@
 #!/usr/bin/env python3
 """
-日志处理器并发性能测试工具
-
-使用示例:
-    # TCP 测试 - 10万条，100并发，限制速率1000条/秒每连接
-    python stress_test.py -protocol tcp -addr localhost:9000 -total 100000 -c 100 -rate 1000
-    
-    # HTTP 测试 - 持续30秒，50并发
-    python stress_test.py -protocol http -addr localhost:9002 -d 30 -c 50 -rate 100
-    
-    # UDP 测试
-    python stress_test.py -protocol udp -addr localhost:9001 -total 50000 -c 50 -rate 1000
-    
-    # 使用 NASA 真实日志数据测试
-    python download_nasa_logs.py                    # 先下载数据集
-    python stress_test.py -file ../data/NASA_access_log_Jul95.txt -total 100000 -rate 50
-
-注意:
-    系统处理能力上限约 800 QPS 持续 / 8,000 QPS 突发 (SQLite限制)
-    发送速率超过此值将导致日志被丢弃，这是预期行为
-    建议使用 -rate 参数限制每连接发送速率
-
-NASA 数据集:
-    下载: python download_nasa_logs.py
-    大小: ~200MB, 约 190万条真实 HTTP 请求
-    时间: 1995年7月 NASA Kennedy Space Center 服务器日志
+TCP/UDP/HTTP 接收器压测发送工具。
 """
+
+from __future__ import annotations
 
 import argparse
 import json
-import socket
-import time
-import threading
 import random
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+import socket
+import threading
+import time
 import urllib.request
-import urllib.error
-import sys
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
 
-# 真实场景数据集 - 用于生成更真实的测试数据
-REALISTIC_PATHS = [
-    "/api/users", "/api/products", "/api/orders", "/api/auth/login", "/api/auth/logout",
-    "/api/search", "/api/cart", "/api/checkout", "/api/payment", "/api/inventory",
-    "/static/js/app.js", "/static/css/style.css", "/static/img/logo.png",
-    "/", "/about", "/contact", "/products", "/blog", "/faq",
-    "/api/v2/users", "/api/v2/products", "/api/admin/dashboard", "/api/admin/users",
-    "/api/health", "/api/metrics", "/favicon.ico", "/robots.txt"
-]
+BASE = "http://localhost:8080"
 
-HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"]
-HTTP_METHOD_WEIGHTS = [70, 20, 5, 3, 2]
-
-STATUS_CODES = [200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 500, 502, 503]
-STATUS_CODE_WEIGHTS = [65, 8, 5, 3, 2, 4, 3, 2, 2, 4, 1, 0.5, 0.5]
-
-IP_RANGES = [
-    "192.168.1", "10.0.0", "172.16.0",
-    "203.0.113", "198.51.100", "192.0.2"
-]
-
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.0",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.0",
-    "Mozilla/5.0 (Android 11; Mobile; rv:83.0) Gecko/83.0 Firefox/83.0",
-    "curl/7.68.0", "PostmanRuntime/7.26.8", "Go-http-client/1.1"
-]
-
-REFERERS = [
-    "-", "https://www.google.com/", "https://www.bing.com/",
-    "https://example.com/", "https://example.com/products",
-    "https://twitter.com/", "https://facebook.com/"
-]
+PATHS = ["/", "/api/users", "/api/orders", "/api/login", "/health", "/metrics"]
+METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"]
+STATUS = [200, 201, 204, 301, 302, 400, 401, 403, 404, 500, 502, 503]
+IPS = ["127.0.0.1", "10.0.0.12", "192.168.1.10", "172.16.1.8", "203.0.113.5"]
 
 
 class Stats:
-    def __init__(self):
+    def __init__(self) -> None:
+        self.start = time.time()
         self.sent = 0
         self.failed = 0
         self.lock = threading.Lock()
-        self.start_time = time.time()
 
-    def add_sent(self, count=1):
+    def reserve(self, n: int, total_limit: int, duration: int) -> int:
         with self.lock:
-            self.sent += count
+            if duration > 0:
+                if time.time() - self.start > duration:
+                    return 0
+                self.sent += n
+                return n
+            remaining = total_limit - self.sent
+            if remaining <= 0:
+                return 0
+            take = min(remaining, n)
+            self.sent += take
+            return take
 
-    def add_failed(self, count=1):
+    def fail(self, n: int) -> None:
         with self.lock:
-            self.failed += count
+            self.failed += n
+            self.sent -= n
 
-    def get_qps(self):
-        elapsed = time.time() - self.start_time
-        return self.sent / elapsed if elapsed > 0 else 0
-
-
-def generate_log_line(seq):
-    """生成真实分布的Nginx格式日志"""
-    timestamp = datetime.now().strftime("%d/%b/%Y:%H:%M:%S %z")
-    
-    ip_range = random.choice(IP_RANGES)
-    client_ip = f"{ip_range}.{random.randint(1, 254)}"
-    
-    method = random.choices(HTTP_METHODS, weights=HTTP_METHOD_WEIGHTS)[0]
-    path = random.choice(REALISTIC_PATHS)
-    status = random.choices(STATUS_CODES, weights=STATUS_CODE_WEIGHTS)[0]
-    size = random.randint(100, 100000)
-    referer = random.choice(REFERERS)
-    user_agent = random.choice(USER_AGENTS)
-    response_time = round(random.uniform(0.001, 5.0), 3)
-    
-    return f'{client_ip} - - [{timestamp}] "{method} {path} HTTP/1.1" {status} {size} "{referer}" "{user_agent}" "{response_time}"'
+    def snapshot(self) -> tuple[int, int]:
+        with self.lock:
+            return self.sent, self.failed
 
 
-def tcp_sender(args, stats, worker_id, log_reader=None):
-    """TCP发送器 - 带精确总量控制"""
+def clear_server_logs() -> None:
+    req = urllib.request.Request(f"{BASE}/api/logs", method="DELETE")
+    urllib.request.urlopen(req, timeout=8).read()
+
+
+def get_server_total() -> int:
+    req = urllib.request.Request(f"{BASE}/api/logs?limit=1", method="GET")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        return int(data.get("total", 0))
+
+
+def gen_log(i: int) -> str:
+    ts = datetime.now().strftime("%d/%b/%Y:%H:%M:%S %z")
+    ip = random.choice(IPS)
+    method = random.choice(METHODS)
+    path = random.choice(PATHS)
+    code = random.choice(STATUS)
+    size = random.randint(100, 10000)
+    return f'{ip} - - [{ts}] "{method} {path} HTTP/1.1" {code} {size}'
+
+
+class FileSource:
+    def __init__(self, path: str) -> None:
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(path)
+        self.lines = [ln.strip() for ln in p.read_text(encoding="utf-8", errors="ignore").splitlines() if ln.strip()]
+        if not self.lines:
+            raise ValueError("empty log file")
+        self.idx = 0
+        self.lock = threading.Lock()
+
+    def take(self, n: int) -> list[str]:
+        out: list[str] = []
+        with self.lock:
+            for _ in range(n):
+                out.append(self.lines[self.idx])
+                self.idx = (self.idx + 1) % len(self.lines)
+        return out
+
+
+def sender_tcp(args, stats: Stats, wid: int, source: FileSource | None):
+    host, port = args.addr.split(":")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((host, int(port)))
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((args.addr.split(':')[0], int(args.addr.split(':')[1])))
-        sock.settimeout(5)
-        
         while True:
-            with stats.lock:
-                if args.duration > 0:
-                    should_stop = time.time() - stats.start_time > args.duration
-                else:
-                    should_stop = stats.sent >= args.total
-                if should_stop:
-                    break
-                stats.sent += 1
-            
+            take = stats.reserve(1, args.total, args.duration)
+            if take == 0:
+                return
             if args.rate > 0:
                 time.sleep(1.0 / args.rate)
-            
-            if log_reader:
-                log_line = log_reader.get_line()
-            else:
-                log_line = generate_log_line(worker_id)
-            
+            line = source.take(1)[0] if source else gen_log(wid)
             try:
-                sock.sendall((log_line + '\n').encode())
+                sock.sendall((line + "\n").encode("utf-8"))
             except Exception:
-                with stats.lock:
-                    stats.sent -= 1
-                    stats.failed += 1
-                try:
-                    sock.close()
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.connect((args.addr.split(':')[0], int(args.addr.split(':')[1])))
-                except Exception:
-                    break
-            
+                stats.fail(1)
+                return
+    finally:
         sock.close()
-    except Exception as e:
-        print(f"[Worker {worker_id}] 错误: {e}")
 
 
-def udp_sender(args, stats, worker_id, log_reader=None):
-    """UDP发送器 - 带精确总量控制"""
+def sender_udp(args, stats: Stats, wid: int, source: FileSource | None):
+    host, port = args.addr.split(":")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(5)
-        
         while True:
-            with stats.lock:
-                if args.duration > 0:
-                    should_stop = time.time() - stats.start_time > args.duration
-                else:
-                    should_stop = stats.sent >= args.total
-                if should_stop:
-                    break
-                stats.sent += 1
-            
+            take = stats.reserve(1, args.total, args.duration)
+            if take == 0:
+                return
             if args.rate > 0:
                 time.sleep(1.0 / args.rate)
-            
-            if log_reader:
-                log_line = log_reader.get_line()
-            else:
-                log_line = generate_log_line(worker_id)
-            
+            line = source.take(1)[0] if source else gen_log(wid)
             try:
-                sock.sendto((log_line + '\n').encode(), (args.addr.split(':')[0], int(args.addr.split(':')[1])))
+                sock.sendto(line.encode("utf-8"), (host, int(port)))
             except Exception:
-                with stats.lock:
-                    stats.sent -= 1
-                    stats.failed += 1
-        
+                stats.fail(1)
+    finally:
         sock.close()
-    except Exception as e:
-        print(f"[Worker {worker_id}] 错误: {e}")
 
 
-def http_sender(args, stats, worker_id, log_reader=None):
-    """HTTP发送器 - 带精确总量控制"""
+def sender_http(args, stats: Stats, wid: int, source: FileSource | None):
     url = f"http://{args.addr}/logs"
-    
     while True:
-        with stats.lock:
-            if args.duration > 0:
-                should_stop = time.time() - stats.start_time > args.duration
-            else:
-                should_stop = stats.sent >= args.total
-            if should_stop:
-                break
-            
-            remaining = args.total - stats.sent if args.duration == 0 else args.batch
-            batch_size = min(args.batch, remaining) if args.duration == 0 else args.batch
-            if batch_size <= 0:
-                break
-            
-            stats.sent += batch_size
-        
-        lines = []
-        if log_reader:
-            lines = log_reader.get_batch(batch_size)
-        else:
-            for _ in range(batch_size):
-                lines.append(generate_log_line(worker_id))
-        
-        body = '\n'.join(lines).encode()
-        
+        batch = stats.reserve(args.batch, args.total, args.duration)
+        if batch == 0:
+            return
+        if args.rate > 0:
+            time.sleep(1.0 / args.rate)
+        lines = source.take(batch) if source else [gen_log(wid) for _ in range(batch)]
+        body = "\n".join(lines).encode("utf-8")
+        req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "text/plain"})
         try:
-            req = urllib.request.Request(
-                url, 
-                data=body, 
-                headers={'Content-Type': 'text/plain'},
-                method='POST'
-            )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 if resp.status != 200:
-                    with stats.lock:
-                        stats.sent -= batch_size
-                        stats.failed += batch_size
+                    stats.fail(batch)
         except Exception:
-            with stats.lock:
-                stats.sent -= batch_size
-                stats.failed += batch_size
+            stats.fail(batch)
 
 
-def progress_reporter(stats, stop_event):
-    """进度报告"""
-    last_sent = 0
-    while not stop_event.is_set():
+def progress_loop(stats: Stats, stop: threading.Event):
+    prev_sent = 0
+    while not stop.is_set():
         time.sleep(1)
-        sent = stats.sent
-        qps = sent - last_sent
-        avg_qps = stats.get_qps()
-        elapsed = time.time() - stats.start_time
-        
-        sys.stdout.write(
-            f"\r[QPS: {qps:6d}/s] [Total: {sent:8d}] [Avg: {avg_qps:6.0f}/s] "
-            f"[Failed: {stats.failed}] [{elapsed:.1f}s]     "
+        sent, failed = stats.snapshot()
+        qps = sent - prev_sent
+        elapsed = max(time.time() - stats.start, 1e-6)
+        avg = sent / elapsed
+        print(
+            f"\r[QPS:{qps:6d}] [Sent:{sent:8d}] [Avg:{avg:7.0f}/s] [Failed:{failed:6d}]",
+            end="",
+            flush=True,
         )
-        sys.stdout.flush()
-        last_sent = sent
+        prev_sent = sent
     print()
 
 
-def clear_server_logs():
-    """清空服务端日志数据"""
-    try:
-        req = urllib.request.Request('http://localhost:8080/api/logs', method='DELETE')
-        urllib.request.urlopen(req, timeout=10)
-        time.sleep(0.5)
-        return True
-    except Exception as e:
-        print(f"[WARN] 清空数据失败: {e}")
-        return False
-
-
-def get_server_count():
-    """获取服务端日志数量"""
-    try:
-        req = urllib.request.Request('http://localhost:8080/api/logs?limit=1', method='GET')
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode())
-            return data.get('total', 0)
-    except Exception:
-        return 0
-
-
-# 日志文件读取器（支持循环读取）
-class LogFileReader:
-    def __init__(self, filepath):
-        self.filepath = filepath
-        self.lines = []
-        self.index = 0
-        self.lock = threading.Lock()
-        self._load_file()
-    
-    def _load_file(self):
-        """加载日志文件到内存"""
-        try:
-            with open(self.filepath, 'r', encoding='utf-8', errors='ignore') as f:
-                self.lines = [line.strip() for line in f if line.strip()]
-            print(f"[INFO] 已加载日志文件: {self.filepath}")
-            print(f"       共 {len(self.lines):,} 条日志")
-        except Exception as e:
-            print(f"[ERROR] 无法读取日志文件: {e}")
-            self.lines = []
-    
-    def get_line(self):
-        """获取下一行日志（循环读取）"""
-        with self.lock:
-            if not self.lines:
-                return None
-            line = self.lines[self.index]
-            self.index = (self.index + 1) % len(self.lines)
-            return line
-    
-    def get_batch(self, size):
-        """获取一批日志"""
-        with self.lock:
-            if not self.lines:
-                return []
-            batch = []
-            for _ in range(size):
-                batch.append(self.lines[self.index])
-                self.index = (self.index + 1) % len(self.lines)
-            return batch
-
-
-def main():
-    parser = argparse.ArgumentParser(description='日志处理器并发性能测试')
-    parser.add_argument('-protocol', choices=['tcp', 'udp', 'http'], 
-                       default='tcp', help='协议类型')
-    parser.add_argument('-addr', default='localhost:9000', 
-                       help='目标地址 (host:port)')
-    parser.add_argument('-total', type=int, default=10000, 
-                       help='总发送日志数')
-    parser.add_argument('-c', type=int, default=10, 
-                       help='并发连接数/协程数')
-    parser.add_argument('-duration', type=int, default=0, 
-                       help='测试持续时间(秒)，0表示按total发送')
-    parser.add_argument('-rate', type=int, default=0, 
-                       help='每连接限流速率(条/秒)，0为不限流')
-    parser.add_argument('-batch', type=int, default=100, 
-                       help='HTTP批量发送条数')
-    parser.add_argument('-no-clear', action='store_true',
-                       help='测试前不清空服务端数据')
-    parser.add_argument('-file', type=str, default=None,
-                       help='从日志文件读取数据发送')
+def main() -> int:
+    parser = argparse.ArgumentParser(description="日志处理系统压测发送器")
+    parser.add_argument("-protocol", choices=["tcp", "udp", "http"], default="tcp")
+    parser.add_argument("-addr", default="localhost:9000")
+    parser.add_argument("-total", type=int, default=10000)
+    parser.add_argument("-c", type=int, default=10, help="并发数")
+    parser.add_argument("-d", "-duration", dest="duration", type=int, default=0, help="持续秒数")
+    parser.add_argument("-rate", type=int, default=0, help="每个 worker 每秒发送条数")
+    parser.add_argument("-batch", type=int, default=100, help="HTTP 批量发送大小")
+    parser.add_argument("-file", type=str, default=None, help="从文件循环读取日志")
+    parser.add_argument("-no-clear", action="store_true")
     args = parser.parse_args()
 
-    # 初始化日志文件读取器（如果指定了文件）
-    log_reader = None
-    if args.file:
-        log_reader = LogFileReader(args.file)
-        if not log_reader.lines:
-            print("[ERROR] 日志文件为空或无法读取，退出测试")
-            return
+    source = FileSource(args.file) if args.file else None
 
-    print("=" * 50)
-    print("日志处理器并发性能测试")
-    print("=" * 50)
-    print(f"协议: {args.protocol.upper()}")
-    print(f"目标: {args.addr}")
-    print(f"并发: {args.c}")
-    if args.file:
-        print(f"数据源: 文件 ({len(log_reader.lines):,} 条)")
-        print(f"文件路径: {args.file}")
-    else:
-        print(f"数据源: 随机生成")
+    print("=" * 60)
+    print("压测执行")
+    print("=" * 60)
+    print(f"protocol={args.protocol} addr={args.addr} concurrency={args.c}")
     if args.duration > 0:
-        print(f"持续时间: {args.duration} 秒")
+        print(f"duration={args.duration}s")
     else:
-        print(f"总量: {args.total}")
-    
-    # 系统能力警告
-    estimated_qps = args.c * args.rate if args.rate > 0 else args.total if args.duration == 0 else args.c * 10000
-    if estimated_qps > 1500:
-        print(f"\n[警告] 预估发送速率 {estimated_qps:,} QPS 超过系统处理能力上限 (~1,500 QPS)")
-        print("          超过此限制的日志将被丢弃，这是预期行为")
-        print("          建议使用 -rate 参数限制发送速率")
-    print()
+        print(f"total={args.total}")
+    if source:
+        print(f"source_file={args.file} lines={len(source.lines)}")
 
-    # 获取初始数量
-    initial_count = get_server_count()
-    print(f"[INFO] 测试前服务端已有: {initial_count:,} 条日志")
-    
-    # 清空数据（除非指定 -no-clear）
+    try:
+        before = get_server_total()
+    except Exception:
+        before = 0
+
     if not args.no_clear:
-        print("[INFO] 正在清空服务端数据...")
-        if clear_server_logs():
-            initial_count = 0
-            print("[INFO] 数据已清空")
-        else:
-            print("[WARN] 清空数据失败，继续测试...")
-    
+        try:
+            clear_server_logs()
+            time.sleep(0.5)
+            before = get_server_total()
+            print("[INFO] 服务端日志已清空")
+        except Exception as exc:
+            print(f"[WARN] 清空服务端日志失败: {exc}")
+
     stats = Stats()
-    stop_event = threading.Event()
-    
-    # 启动进度报告
-    reporter = threading.Thread(target=progress_reporter, args=(stats, stop_event))
+    reporter_stop = threading.Event()
+    reporter = threading.Thread(target=progress_loop, args=(stats, reporter_stop), daemon=True)
     reporter.start()
-    
-    # 选择发送器
-    sender_func = {
-        'tcp': tcp_sender,
-        'udp': udp_sender,
-        'http': http_sender
+
+    sender = {
+        "tcp": sender_tcp,
+        "udp": sender_udp,
+        "http": sender_http,
     }[args.protocol]
-    
-    # 启动测试
-    start_time = time.time()
-    
-    with ThreadPoolExecutor(max_workers=args.c) as executor:
-        futures = [executor.submit(sender_func, args, stats, i, log_reader) for i in range(args.c)]
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as e:
-                print(f"[ERROR] Worker异常: {e}")
-    
-    elapsed = time.time() - start_time
-    stop_event.set()
+
+    with ThreadPoolExecutor(max_workers=args.c) as pool:
+        futures = [pool.submit(sender, args, stats, i, source) for i in range(args.c)]
+        for fut in futures:
+            fut.result()
+
+    reporter_stop.set()
     reporter.join()
-    
-    print()
-    print("=" * 50)
-    print("测试结果")
-    print("=" * 50)
-    print(f"总用时: {elapsed:.2f} 秒")
-    print(f"成功发送: {stats.sent:,} 条")
-    print(f"失败: {stats.failed:,} 条")
-    print(f"平均 QPS: {stats.sent/elapsed:,.0f} 条/秒")
-    print(f"吞吐量: {(stats.sent * 100) / (1024 * 1024 * elapsed):.2f} MB/秒")
-    print()
-    
-    # 等待服务端处理完队列，然后验证
-    print("=" * 50)
-    print("服务端验证")
-    print("=" * 50)
-    
-    # 估算需要的等待时间：SQLite 处理速度约 500 QPS
-    estimated_process_time = (stats.sent / 500) * 2
-    max_wait = min(int(estimated_process_time), 120)
-    if max_wait < 10:
-        max_wait = 10
-    
-    check_interval = 2
-    
-    print(f"等待服务端处理队列（预估需要 {max_wait} 秒）...")
-    print(f"提示: SQLite 单线程写入约 500 QPS")
-    
-    prev_count = get_server_count()
-    stable_count = 0
-    final_count = prev_count
-    start_wait = time.time()
-    
-    while time.time() - start_wait < max_wait:
-        time.sleep(check_interval)
-        current_count = get_server_count()
-        added = current_count - initial_count
-        elapsed_wait = time.time() - start_wait
-        
-        if stats.sent > 0:
-            progress = (added / stats.sent) * 100
-            qps_recent = (current_count - prev_count) / check_interval
-            print(f"  [{elapsed_wait:5.1f}s] 已存储: {added:,} / {stats.sent:,} ({progress:.1f}%) 速度: {qps_recent:.0f} QPS")
-        
-        # 检查数据是否还在增加
-        if current_count == prev_count:
-            stable_count += 1
-            if stable_count >= 3:
-                print(f"\n[OK] 数据已稳定，停止等待")
-                break
-        else:
-            stable_count = 0
-        
-        # 如果已经达到100%，提前结束
-        if added >= stats.sent:
-            print(f"\n[OK] 所有数据已存储")
-            break
-        
-        prev_count = current_count
-        final_count = current_count
-    else:
-        print(f"\n[信息] 达到最大等待时间 ({max_wait} 秒)")
-    
-    added = final_count - initial_count
-    
-    print(f"\n客户端发送: {stats.sent:,} 条")
-    print(f"服务端原有: {initial_count:,} 条")
-    print(f"服务端现有: {final_count:,} 条")
-    print(f"本次新增: {added:,} 条")
-    
-    if stats.sent > 0:
-        success_rate = (added / stats.sent) * 100
-        print(f"处理成功率: {success_rate:.1f}%")
-        
-        if success_rate >= 95:
-            print("\n[OK] 所有日志已存储")
-        elif success_rate >= 80:
-            print("\n[信息] 部分日志可能仍在处理队列中")
-        else:
-            print("\n[警告] 大量日志可能因队列满被丢弃")
-            print("   建议: 1) 降低发送速率 2) 缩短测试时间")
-    else:
-        print("[X] 未成功发送任何日志")
+
+    elapsed = max(time.time() - stats.start, 1e-6)
+    sent, failed = stats.snapshot()
+    print("\n" + "=" * 60)
+    print("客户端结果")
+    print("=" * 60)
+    print(f"elapsed:   {elapsed:.2f}s")
+    print(f"sent:      {sent:,}")
+    print(f"failed:    {failed:,}")
+    print(f"avg_qps:   {sent / elapsed:.0f}")
+
+    wait_s = max(5, min(60, int(sent / 500)))
+    print(f"\n[INFO] 等待 {wait_s}s 让后端刷盘...")
+    time.sleep(wait_s)
+    try:
+        after = get_server_total()
+        stored = max(0, after - before)
+        ratio = (stored / sent * 100.0) if sent > 0 else 0.0
+        print("=" * 60)
+        print("服务端校验")
+        print("=" * 60)
+        print(f"stored_added: {stored:,}")
+        print(f"store_ratio:  {ratio:.1f}%")
+    except Exception as exc:
+        print(f"[WARN] 校验服务端计数失败: {exc}")
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

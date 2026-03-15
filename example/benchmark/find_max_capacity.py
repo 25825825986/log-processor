@@ -1,196 +1,157 @@
 #!/usr/bin/env python3
 """
-测试系统最大处理能力 - 渐进式增加压力
-
-使用示例:
-    python find_max_rate.py -protocol tcp -addr localhost:9000
+估算 TCP/UDP 接收器可稳定承载的最大速率。
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import socket
-import time
 import threading
+import time
 import urllib.request
-import sys
+
+BASE = "http://localhost:8080"
 
 
-def test_with_rate(protocol, addr, total, concurrency, rate_per_conn):
-    """以指定速率测试"""
-    stats = {'sent': 0, 'failed': 0, 'start_time': time.time()}
-    lock = threading.Lock()
-    stop_event = threading.Event()
-    
-    def sender(worker_id):
-        try:
-            if protocol == 'tcp':
-                conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                conn.connect((addr.split(':')[0], int(addr.split(':')[1])))
-            elif protocol == 'udp':
-                conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            else:
-                conn = None
-                
-            seq = worker_id
-            last_send_time = time.time()
-            
-            while not stop_event.is_set():
-                if stats['sent'] >= total:
-                    break
-                
-                # 速率限制
-                if rate_per_conn > 0:
-                    expected_time = last_send_time + (1.0 / rate_per_conn)
-                    sleep_time = expected_time - time.time()
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
-                    last_send_time = time.time()
-                
-                log_line = f'127.0.0.1 - - [{time.strftime("%d/%b/%Y:%H:%M:%S %z")}] "GET /api/test{seq%100} HTTP/1.1" 200 {100+(seq%9900)}'
-                
-                try:
-                    if protocol == 'tcp':
-                        conn.sendall((log_line + '\n').encode())
-                    elif protocol == 'udp':
-                        conn.sendto(log_line.encode(), (addr.split(':')[0], int(addr.split(':')[1])))
-                    
-                    with lock:
-                        stats['sent'] += 1
-                except Exception:
-                    with lock:
-                        stats['failed'] += 1
-                
-                seq += concurrency
-                
-            if conn:
-                conn.close()
-        except Exception as e:
-            print(f"[Worker {worker_id}] 错误: {e}")
-    
-    # 启动工作线程
-    threads = []
-    for i in range(concurrency):
-        t = threading.Thread(target=sender, args=(i,))
-        t.start()
-        threads.append(t)
-    
-    # 进度显示
-    last_sent = 0
-    while stats['sent'] < total and not stop_event.is_set():
-        time.sleep(1)
-        with lock:
-            sent = stats['sent']
-        qps = sent - last_sent
-        last_sent = sent
-        print(f"\r  发送进度: {sent:,} / {total:,} ({qps:,}/s)", end='', flush=True)
-    
-    stop_event.set()
-    for t in threads:
-        t.join()
-    
-    print()
-    return stats['sent'], stats['failed']
-
-
-def get_server_count():
-    """获取服务端存储数量"""
+def clear_logs() -> None:
     try:
-        req = urllib.request.Request('http://localhost:8080/api/logs?limit=1', method='GET')
+        req = urllib.request.Request(f"{BASE}/api/logs", method="DELETE")
+        urllib.request.urlopen(req, timeout=10).read()
+    except Exception:
+        pass
+
+
+def get_total() -> int:
+    try:
+        req = urllib.request.Request(f"{BASE}/api/logs?limit=1", method="GET")
         with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode())
-            return data.get('total', 0)
+            data = json.loads(resp.read().decode("utf-8"))
+            return int(data.get("total", 0))
     except Exception:
         return 0
 
 
-def main():
-    parser = argparse.ArgumentParser(description='测试系统最大处理能力')
-    parser.add_argument('-protocol', choices=['tcp', 'udp'], default='tcp')
-    parser.add_argument('-addr', default='localhost:9000')
-    parser.add_argument('-c', type=int, default=50, help='并发连接数')
-    parser.add_argument('-test_each', type=int, default=10000, help='每个速率测试的条数')
-    parser.add_argument('-max_rate', type=int, default=10000, help='最大测试速率')
+def build_log_line(i: int) -> str:
+    ts = time.strftime("%d/%b/%Y:%H:%M:%S %z")
+    return f'127.0.0.1 - - [{ts}] "GET /api/capacity/{i % 1000} HTTP/1.1" 200 {100 + (i % 8000)}'
+
+
+def run_sender(protocol: str, addr: str, total: int, concurrency: int, rate_per_conn: int):
+    sent = 0
+    failed = 0
+    sent_lock = threading.Lock()
+    host, port = addr.split(":")
+    port_i = int(port)
+    stop = threading.Event()
+
+    def worker(worker_id: int):
+        nonlocal sent, failed
+        sock = None
+        try:
+            if protocol == "tcp":
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect((host, port_i))
+            else:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            while not stop.is_set():
+                with sent_lock:
+                    if sent >= total:
+                        break
+                    idx = sent
+                    sent += 1
+                if rate_per_conn > 0:
+                    time.sleep(1.0 / rate_per_conn)
+                line = build_log_line(idx).encode("utf-8")
+                try:
+                    if protocol == "tcp":
+                        assert sock is not None
+                        sock.sendall(line + b"\n")
+                    else:
+                        assert sock is not None
+                        sock.sendto(line, (host, port_i))
+                except Exception:
+                    with sent_lock:
+                        failed += 1
+        finally:
+            if sock is not None:
+                sock.close()
+
+    threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(concurrency)]
+    start = time.time()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    elapsed = max(time.time() - start, 1e-6)
+    stop.set()
+    return sent, failed, elapsed
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="探测接收器稳定容量。")
+    parser.add_argument("-protocol", choices=["tcp", "udp"], default="tcp")
+    parser.add_argument("-addr", default="localhost:9000")
+    parser.add_argument("-c", type=int, default=30, help="并发数")
+    parser.add_argument("-test_each", type=int, default=20000, help="每档速率发送日志数")
+    parser.add_argument("-max_rate", type=int, default=10000)
     args = parser.parse_args()
-    
+
+    rates = [500, 1000, 1500, 2000, 3000, 5000, 8000, 10000]
+    best = 0
+    best_store_rate = 0.0
+
     print("=" * 60)
-    print("系统最大处理能力测试")
+    print("容量探测")
     print("=" * 60)
-    print(f"协议: {args.protocol.upper()}")
-    print(f"地址: {args.addr}")
-    print(f"并发: {args.c}")
-    print()
-    
-    # 初始清空
-    print("正在清空已有数据...")
-    try:
-        req = urllib.request.Request('http://localhost:8080/api/logs', method='DELETE')
-        urllib.request.urlopen(req, timeout=10)
-        time.sleep(1)
-    except Exception:
-        pass
-    
-    rates = [1000, 2000, 3000, 4000, 5000, 6000, 8000]
-    best_rate = 0
-    best_success_rate = 0
-    
+    print(f"protocol={args.protocol} addr={args.addr} concurrency={args.c}")
+
     for rate in rates:
         if rate > args.max_rate:
             break
-            
-        print(f"\n📊 测试速率: {rate:,} QPS")
-        print("-" * 40)
-        
-        # 清空数据
-        try:
-            req = urllib.request.Request('http://localhost:8080/api/logs', method='DELETE')
-            urllib.request.urlopen(req, timeout=5)
-            time.sleep(0.5)
-        except Exception:
-            pass
-        
-        # 计算每个连接的速率
-        rate_per_conn = rate // args.c
-        if rate_per_conn < 1:
-            rate_per_conn = 1
-        
-        # 测试
-        sent, failed = test_with_rate(args.protocol, args.addr, args.test_each, args.c, rate_per_conn)
-        
-        # 等待处理完成
-        print("  等待 3 秒让服务端处理...")
-        time.sleep(3)
-        
-        # 检查存储数量
-        stored = get_server_count()
-        success_rate = (stored / sent * 100) if sent > 0 else 0
-        
-        print(f"  发送: {sent:,} 条")
-        print(f"  存储: {stored:,} 条")
-        print(f"  成功率: {success_rate:.1f}%")
-        
-        if success_rate >= 95:
-            best_rate = rate
-            best_success_rate = success_rate
-            print("  ✅ 通过")
+        rate_per_conn = max(1, rate // max(args.c, 1))
+        print(f"\n[TEST] target={rate} qps, per_conn={rate_per_conn}")
+
+        clear_logs()
+        before = get_total()
+        sent, failed, elapsed = run_sender(
+            protocol=args.protocol,
+            addr=args.addr,
+            total=args.test_each,
+            concurrency=args.c,
+            rate_per_conn=rate_per_conn,
+        )
+
+        # 等待后端刷盘和批处理完成
+        time.sleep(5)
+        after = get_total()
+
+        stored = max(0, after - before)
+        send_rate = sent / elapsed
+        store_rate = stored / elapsed
+        success = (stored / sent * 100.0) if sent else 0.0
+
+        print(f"sent={sent} failed={failed} elapsed={elapsed:.2f}s")
+        print(f"send_rate={send_rate:.0f} qps stored={stored} success={success:.1f}%")
+
+        if success >= 95.0:
+            best = rate
+            best_store_rate = store_rate
         else:
-            print("  ❌ 未通过 (大量丢弃)")
+            print("[STOP] 成功率低于 95%，停止探测。")
             break
-    
-    print()
-    print("=" * 60)
-    print("测试结果")
-    print("=" * 60)
-    if best_rate > 0:
-        print(f"🎉 系统最大稳定处理能力: ~{best_rate:,} QPS")
-        print(f"   成功率: {best_success_rate:.1f}%")
-        print()
-        print("💡 建议配置:")
-        print(f"   - 如果持续接收 {best_rate//2:,} QPS 以下，可以稳定处理")
-        print(f"   - 如果超过 {best_rate:,} QPS，考虑降低发送速率或使用多个实例")
+
+    print("\n" + "=" * 60)
+    if best > 0:
+        print(f"稳定目标速率: {best} qps")
+        print(f"观测存储速率: {best_store_rate:.0f} qps")
     else:
-        print("⚠️  即使在最低速率下也有大量丢弃")
-        print("   建议: 大幅降低并发或增加 worker_count")
+        print("在测试范围内未找到稳定速率。")
+    print("=" * 60)
+    return 0
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    raise SystemExit(main())

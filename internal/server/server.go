@@ -432,11 +432,6 @@ func (s *Server) importLogs(c *gin.Context) {
 	}
 	actualImported := countAfter - countBefore
 
-	if actualImported < int64(successCount) {
-		log.Printf("[IMPORT] 警告: 提交 %d 条，实际导入 %d 条（可能有 %d 条解析失败）",
-			successCount, actualImported, successCount-int(actualImported))
-	}
-
 	// 确定响应状态
 	responseStatus := "ok"
 	warningMsg := ""
@@ -444,15 +439,6 @@ func (s *Server) importLogs(c *gin.Context) {
 	if droppedCount > 0 {
 		responseStatus = "partial"
 		warningMsg = fmt.Sprintf("提交 %d 条，丢弃 %d 条（队列满）", successCount, droppedCount)
-	}
-
-	if actualImported < int64(successCount) {
-		responseStatus = "partial"
-		if warningMsg != "" {
-			warningMsg += "；"
-		}
-		warningMsg += fmt.Sprintf("实际导入 %d 条，% d 条可能格式不匹配",
-			actualImported, successCount-int(actualImported))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
