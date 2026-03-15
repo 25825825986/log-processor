@@ -20,25 +20,26 @@ func min(a, b int) int {
 
 // ProcessorStats 处理器统计
 type ProcessorStats struct {
-	ReceivedCount  int64 // 接收总数
-	ProcessedCount int64 // 处理成功数
-	DroppedCount   int64 // 丢弃数（队列满）
+	ReceivedCount   int64 // 接收总数
+	ProcessedCount  int64 // 处理成功数
+	DroppedCount    int64 // 丢弃数（队列满）
 	ParseErrorCount int64 // 解析错误数
 }
 
 // Processor 数据处理器
 type Processor struct {
-	config     config.ProcessorConfig
-	inputChan  chan string
-	outputChan chan *models.LogEntry
-	parser     Parser
-	storage    Storage
-	wg         sync.WaitGroup
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.RWMutex
-	stopped    bool
-	stats      ProcessorStats
+	config         config.ProcessorConfig
+	inputChan      chan string
+	outputChan     chan *models.LogEntry
+	workerStopChan chan struct{}
+	parser         Parser
+	storage        Storage
+	wg             sync.WaitGroup
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.RWMutex
+	stopped        bool
+	stats          ProcessorStats
 }
 
 // Parser 解析器接口
@@ -66,33 +67,33 @@ func NewProcessor(cfg config.ProcessorConfig, parser Parser, storage Storage) *P
 	}
 
 	p := &Processor{
-		config:     cfg,
-		inputChan:  make(chan string, queueSize),
-		outputChan: make(chan *models.LogEntry, queueSize),
-		parser:     parser,
-		storage:    storage,
-		ctx:        ctx,
-		cancel:     cancel,
+		config:         cfg,
+		inputChan:      make(chan string, queueSize),
+		outputChan:     make(chan *models.LogEntry, queueSize),
+		workerStopChan: make(chan struct{}, 1024),
+		parser:         parser,
+		storage:        storage,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	return p
 }
 
-
-
 // Start 启动处理器
 func (p *Processor) Start() {
+	cfg := p.getConfigSnapshot()
+
 	// 启动工作协程
-	for i := 0; i < p.config.WorkerCount; i++ {
-		p.wg.Add(1)
-		go p.worker(i)
+	for i := 0; i < cfg.WorkerCount; i++ {
+		p.startWorker(i)
 	}
 
 	// 启动批处理协程
 	p.wg.Add(1)
 	go p.batchProcessor()
 
-	log.Printf("Processor started with %d workers", p.config.WorkerCount)
+	log.Printf("Processor started with %d workers", cfg.WorkerCount)
 }
 
 // Stop 停止处理器
@@ -100,24 +101,24 @@ func (p *Processor) Stop() {
 	p.mu.Lock()
 	p.stopped = true
 	p.mu.Unlock()
-	
+
 	p.cancel()
 	close(p.inputChan)
-	
+
 	// 使用超时等待，避免永久卡住
 	done := make(chan struct{})
 	go func() {
 		p.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// 正常完成
 	case <-time.After(5 * time.Second):
 		log.Println("[WARN] 处理器停止超时，强制关闭")
 	}
-	
+
 	close(p.outputChan)
 	log.Println("Processor stopped")
 }
@@ -139,8 +140,11 @@ func (p *Processor) Submit(line string) bool {
 	default:
 		// 队列满，记录警告日志（每1000条丢弃记录一次，避免日志风暴）
 		if rand.Intn(1000) == 0 {
-			log.Printf("[WARN] Processor input queue full (%d/%d), total dropped ~%d logs", 
-				len(p.inputChan), cap(p.inputChan), p.stats.DroppedCount)
+			p.mu.RLock()
+			dropped := p.stats.DroppedCount
+			p.mu.RUnlock()
+			log.Printf("[WARN] Processor input queue full (%d/%d), total dropped ~%d logs",
+				len(p.inputChan), cap(p.inputChan), dropped)
 		}
 		p.mu.Lock()
 		p.stats.DroppedCount++
@@ -155,6 +159,9 @@ func (p *Processor) worker(id int) {
 
 	for {
 		select {
+		case <-p.workerStopChan:
+			log.Printf("Processor worker %d stopped by config update", id)
+			return
 		case line, ok := <-p.inputChan:
 			if !ok {
 				return
@@ -175,9 +182,10 @@ func (p *Processor) processLine(line string) {
 	p.mu.Lock()
 	p.stats.ReceivedCount++
 	p.mu.Unlock()
-	
+
 	// 解析
-	entry, err := p.parser.Parse(line)
+	parser := p.getParser()
+	entry, err := parser.Parse(line)
 	if err != nil {
 		p.mu.Lock()
 		p.stats.ParseErrorCount++
@@ -249,11 +257,36 @@ func (p *Processor) setFieldValue(entry *models.LogEntry, field, value string) {
 func (p *Processor) batchProcessor() {
 	defer p.wg.Done()
 
-	batch := make([]*models.LogEntry, 0, p.config.BatchSize)
-	ticker := time.NewTicker(time.Duration(p.config.BatchTimeout) * time.Millisecond)
+	cfg := p.getConfigSnapshot()
+	batchSize := cfg.BatchSize
+	if batchSize <= 0 {
+		batchSize = 1
+	}
+	batchTimeout := cfg.BatchTimeout
+	if batchTimeout <= 0 {
+		batchTimeout = 1000
+	}
+
+	batch := make([]*models.LogEntry, 0, batchSize)
+	ticker := time.NewTicker(time.Duration(batchTimeout) * time.Millisecond)
 	defer ticker.Stop()
+	currentTimeout := batchTimeout
 
 	for {
+		cfg = p.getConfigSnapshot()
+		batchLimit := cfg.BatchSize
+		if batchLimit <= 0 {
+			batchLimit = 1
+		}
+		timeout := cfg.BatchTimeout
+		if timeout <= 0 {
+			timeout = 1000
+		}
+		if timeout != currentTimeout {
+			ticker.Reset(time.Duration(timeout) * time.Millisecond)
+			currentTimeout = timeout
+		}
+
 		select {
 		case entry, ok := <-p.outputChan:
 			if !ok {
@@ -263,22 +296,22 @@ func (p *Processor) batchProcessor() {
 				return
 			}
 			batch = append(batch, entry)
-			if len(batch) >= p.config.BatchSize {
+			if len(batch) >= batchLimit {
 				p.saveBatch(batch)
-				batch = make([]*models.LogEntry, 0, p.config.BatchSize)
+				batch = make([]*models.LogEntry, 0, batchLimit)
 			}
 		case <-ticker.C:
 			if len(batch) > 0 {
 				p.saveBatch(batch)
-				batch = make([]*models.LogEntry, 0, p.config.BatchSize)
+				batch = make([]*models.LogEntry, 0, batchLimit)
 			}
 		case <-p.ctx.Done():
 			// 处理剩余数据
 			for entry := range p.outputChan {
 				batch = append(batch, entry)
-				if len(batch) >= p.config.BatchSize {
+				if len(batch) >= batchLimit {
 					p.saveBatch(batch)
-					batch = make([]*models.LogEntry, 0, p.config.BatchSize)
+					batch = make([]*models.LogEntry, 0, batchLimit)
 				}
 			}
 			if len(batch) > 0 {
@@ -298,12 +331,63 @@ func (p *Processor) saveBatch(batch []*models.LogEntry) {
 
 // UpdateConfig 更新配置
 func (p *Processor) UpdateConfig(cfg config.ProcessorConfig) {
+	if cfg.WorkerCount < 1 {
+		cfg.WorkerCount = 1
+	}
+	if cfg.BatchSize < 1 {
+		cfg.BatchSize = 1
+	}
+	if cfg.BatchTimeout < 1 {
+		cfg.BatchTimeout = 1
+	}
+
+	p.mu.Lock()
+	if p.stopped {
+		p.config = cfg
+		p.mu.Unlock()
+		return
+	}
+	oldWorkerCount := p.config.WorkerCount
 	p.config = cfg
+	p.mu.Unlock()
+
+	diff := cfg.WorkerCount - oldWorkerCount
+	switch {
+	case diff > 0:
+		for i := 0; i < diff; i++ {
+			p.startWorker(oldWorkerCount + i)
+		}
+		log.Printf("Processor worker count scaled up: %d -> %d", oldWorkerCount, cfg.WorkerCount)
+	case diff < 0:
+		for i := 0; i < -diff; i++ {
+			p.workerStopChan <- struct{}{}
+		}
+		log.Printf("Processor worker count scaled down: %d -> %d", oldWorkerCount, cfg.WorkerCount)
+	}
 }
 
 // SetParser 设置解析器
 func (p *Processor) SetParser(parser Parser) {
+	p.mu.Lock()
 	p.parser = parser
+	p.mu.Unlock()
+}
+
+func (p *Processor) startWorker(id int) {
+	p.wg.Add(1)
+	go p.worker(id)
+}
+
+func (p *Processor) getConfigSnapshot() config.ProcessorConfig {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.config
+}
+
+func (p *Processor) getParser() Parser {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.parser
 }
 
 // GetStats 获取处理统计

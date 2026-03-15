@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,14 +33,16 @@ func min(a, b int) int {
 
 // Server Web服务器
 type Server struct {
-	config         *config.Config
-	configPath     string
-	router         *gin.Engine
-	storage        storage.Storage
-	parser         *parser.LogParser
-	processor      *processor.Processor
-	receiver       *receiver.Manager
-	exportManager  *exporter.ExportManager
+	config          *config.Config
+	configPath      string
+	router          *gin.Engine
+	storage         storage.Storage
+	parser          *parser.LogParser
+	processor       *processor.Processor
+	receiver        *receiver.Manager
+	exportManager   *exporter.ExportManager
+	runtimeMu       sync.Mutex
+	receiverRunning bool
 }
 
 // NewServer 创建新服务器
@@ -52,14 +55,15 @@ func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Proces
 	router.Use(gin.LoggerWithConfig(loggerConfig))
 
 	s := &Server{
-		config:        cfg,
-		configPath:    configPath,
-		router:        router,
-		storage:       store,
-		parser:        parser.NewLogParser(cfg.GetParserConfig()),
-		processor:     proc,
-		receiver:      recv,
-		exportManager: exporter.NewExportManager(),
+		config:          cfg,
+		configPath:      configPath,
+		router:          router,
+		storage:         store,
+		parser:          parser.NewLogParser(cfg.GetParserConfig()),
+		processor:       proc,
+		receiver:        recv,
+		exportManager:   exporter.NewExportManager(),
+		receiverRunning: true,
 	}
 
 	s.setupRoutes()
@@ -73,15 +77,15 @@ func (s *Server) setupRoutes() {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-		
+
 		c.Next()
 	})
-	
+
 	// 静态文件
 	s.router.Static("/static", "./web")
 	s.router.LoadHTMLFiles("./web/index.html")
@@ -134,107 +138,119 @@ func (s *Server) Run() error {
 // getConfig 获取配置（过滤敏感信息）
 func (s *Server) getConfig(c *gin.Context) {
 	cfg := s.config.Get()
-	
+
 	// 出于安全考虑，不返回敏感配置（如认证Token）
 	c.JSON(http.StatusOK, gin.H{
-		"server": cfg.Server,
-		"parser": cfg.Parser,
+		"server":    cfg.Server,
+		"parser":    cfg.Parser,
 		"processor": cfg.Processor,
-		"storage": cfg.Storage,
+		"storage":   cfg.Storage,
 		"receiver": gin.H{
-			"tcp_enabled":         cfg.Receiver.TCPEnabled,
-			"tcp_port":            cfg.Receiver.TCPPort,
-			"udp_enabled":         cfg.Receiver.UDPEnabled,
-			"udp_port":            cfg.Receiver.UDPPort,
-			"http_enabled":        cfg.Receiver.HTTPEnabled,
-			"http_port":           cfg.Receiver.HTTPPort,
-			"http_auth_token":     cfg.Receiver.HTTPAuthToken,  // 返回实际值（为空则不启用）
-			"http_allowed_ips":    cfg.Receiver.HTTPAllowedIPs,
-			"http_rate_limit":     cfg.Receiver.HTTPRateLimit,
-			"http_max_body_size":  cfg.Receiver.HTTPMaxBodySize,
-			"buffer_size":         cfg.Receiver.BufferSize,
+			"tcp_enabled":          cfg.Receiver.TCPEnabled,
+			"tcp_port":             cfg.Receiver.TCPPort,
+			"udp_enabled":          cfg.Receiver.UDPEnabled,
+			"udp_port":             cfg.Receiver.UDPPort,
+			"http_enabled":         cfg.Receiver.HTTPEnabled,
+			"http_port":            cfg.Receiver.HTTPPort,
+			"http_auth_token":      cfg.Receiver.HTTPAuthToken, // 返回实际值（为空则不启用）
+			"http_allowed_ips":     cfg.Receiver.HTTPAllowedIPs,
+			"http_rate_limit":      cfg.Receiver.HTTPRateLimit,
+			"http_max_body_size":   cfg.Receiver.HTTPMaxBodySize,
+			"buffer_size":          cfg.Receiver.BufferSize,
 			"file_watcher_enabled": cfg.Receiver.FileWatcherEnabled,
-			"watch_paths":         cfg.Receiver.WatchPaths,
-			"max_connections":     cfg.Receiver.MaxConnections,
+			"watch_paths":          cfg.Receiver.WatchPaths,
+			"max_connections":      cfg.Receiver.MaxConnections,
 		},
 	})
 }
 
 // updateConfig 更新配置
 func (s *Server) updateConfig(c *gin.Context) {
-	// 使用 map 接收 JSON，避免直接绑定到带有 sync.RWMutex 的 Config 结构体
 	var jsonConfig map[string]interface{}
 	if err := c.ShouldBindJSON(&jsonConfig); err != nil {
-		log.Printf("[ERROR] 解析配置 JSON 失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "配置格式错误: " + err.Error()})
-		return
-	}
-	
-	// 将 map 转换为 JSON 再解析到 Config 结构体
-	jsonData, err := json.Marshal(jsonConfig)
-	if err != nil {
-		log.Printf("[ERROR] 序列化配置失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置处理失败"})
-		return
-	}
-	
-	var newConfig config.Config
-	if err := json.Unmarshal(jsonData, &newConfig); err != nil {
-		log.Printf("[ERROR] 解析配置结构失败: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "配置字段错误: " + err.Error()})
+		log.Printf("[ERROR] failed to parse config json: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config format: " + err.Error()})
 		return
 	}
 
-	if err := s.config.Update(&newConfig); err != nil {
-		log.Printf("[ERROR] 更新配置失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置更新失败: " + err.Error()})
+	oldConfig := s.config.Get()
+	mergedConfig := oldConfig
+
+	if err := mergeConfigSection(jsonConfig, "server", &mergedConfig.Server); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := mergeConfigSection(jsonConfig, "parser", &mergedConfig.Parser); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := mergeConfigSection(jsonConfig, "processor", &mergedConfig.Processor); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := mergeConfigSection(jsonConfig, "alert", &mergedConfig.Alert); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := mergeConfigSection(jsonConfig, "display", &mergedConfig.Display); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := mergeConfigSection(jsonConfig, "import", &mergedConfig.Import); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := mergeConfigSection(jsonConfig, "storage", &mergedConfig.Storage); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := mergeConfigSection(jsonConfig, "receiver", &mergedConfig.Receiver); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 保存配置到文件
+	if err := s.config.Update(&mergedConfig); err != nil {
+		log.Printf("[ERROR] failed to update config: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update config: " + err.Error()})
+		return
+	}
+
 	if err := s.config.SaveToFile(s.configPath); err != nil {
-		log.Printf("[ERROR] 保存配置到文件失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "内存中配置已更新，但保存到文件失败: " + err.Error()})
+		log.Printf("[ERROR] failed to save config file: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "config updated in memory but failed to save file: " + err.Error()})
 		return
 	}
-	log.Printf("[INFO] 配置已保存到: %s", s.configPath)
 
-	// 在更新配置前，先获取旧的接收器配置
-	oldRecvCfg := s.config.Get().Receiver
-	newRecvCfg := newConfig.Receiver
+	oldRecvCfg := oldConfig.Receiver
+	newRecvCfg := mergedConfig.Receiver
 	receiverChanged := !compareReceiverConfig(oldRecvCfg, newRecvCfg)
-	
-	log.Printf("[DEBUG] 旧接收器配置: TCP=%v:%d UDP=%v:%d HTTP=%v:%d", 
-		oldRecvCfg.TCPEnabled, oldRecvCfg.TCPPort,
-		oldRecvCfg.UDPEnabled, oldRecvCfg.UDPPort,
-		oldRecvCfg.HTTPEnabled, oldRecvCfg.HTTPPort)
-	log.Printf("[DEBUG] 新接收器配置: TCP=%v:%d UDP=%v:%d HTTP=%v:%d", 
-		newRecvCfg.TCPEnabled, newRecvCfg.TCPPort,
-		newRecvCfg.UDPEnabled, newRecvCfg.UDPPort,
-		newRecvCfg.HTTPEnabled, newRecvCfg.HTTPPort)
-	log.Printf("[DEBUG] 接收器配置是否变更: %v", receiverChanged)
-	
-	// 更新解析器配置
-	s.parser.SetConfig(newConfig.Parser)
+	storageChanged := !compareStorageConfig(oldConfig.Storage, mergedConfig.Storage)
 
-	// 更新处理器配置
-	s.processor.UpdateConfig(newConfig.Processor)
-	
-	// 更新处理器的解析器（因为解析器配置已改变）
+	s.parser.SetConfig(mergedConfig.Parser)
+	s.processor.UpdateConfig(mergedConfig.Processor)
 	s.processor.SetParser(s.parser)
 
-	// 如果接收器配置变更，重启接收器
-	if receiverChanged {
-		log.Printf("[INFO] 接收器配置已变更，正在重启接收器...")
-		if err := s.restartReceivers(newRecvCfg); err != nil {
-			log.Printf("[ERROR] 重启接收器失败: %v", err)
+	if storageChanged {
+		if err := s.applyStorageConfig(mergedConfig.Storage); err != nil {
+			log.Printf("[ERROR] failed to apply storage runtime config: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"status": "partial",
-				"message": "配置已更新，但接收器重启动失败: " + err.Error(),
+				"status":  "partial",
+				"message": "config saved but failed to apply storage config at runtime: " + err.Error(),
 			})
 			return
 		}
-		log.Printf("[OK] 接收器已重新启动")
+	}
+
+	if receiverChanged {
+		log.Printf("[INFO] receiver config changed, restarting receiver")
+		if err := s.restartReceivers(newRecvCfg); err != nil {
+			log.Printf("[ERROR] failed to restart receivers: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status":  "partial",
+				"message": "config saved but failed to restart receiver: " + err.Error(),
+			})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -284,9 +300,9 @@ func (s *Server) queryLogs(c *gin.Context) {
 	count, _ := s.storage.Count(filter)
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":  entries,
-		"total": count,
-		"limit": limit,
+		"data":   entries,
+		"total":  count,
+		"limit":  limit,
 		"offset": offset,
 	})
 }
@@ -313,7 +329,7 @@ func (s *Server) importLogs(c *gin.Context) {
 	// 导入文件 - 使用同步处理避免 channel panic
 	importer := receiver.NewFileImporter()
 	lines := make([]string, 0)
-	
+
 	// 先读取所有行
 	_, err = importer.ImportFile(tempPath, func(line string) bool {
 		lines = append(lines, line)
@@ -344,11 +360,11 @@ func (s *Server) importLogs(c *gin.Context) {
 	// 检查格式是否匹配
 	if !isFormatCompatible(detectedFormat, currentFormat) {
 		c.JSON(http.StatusOK, gin.H{
-			"status":   "warning",
-			"lines":    len(lines),
-			"accepted": 0,
-			"file":     file.Filename,
-			"warning":  fmt.Sprintf("文件格式为 [%s]，但当前配置为 [%s]。请前往「配置」页面修改解析格式后再导入。", detectedFormat, currentFormat),
+			"status":          "warning",
+			"lines":           len(lines),
+			"accepted":        0,
+			"file":            file.Filename,
+			"warning":         fmt.Sprintf("文件格式为 [%s]，但当前配置为 [%s]。请前往「配置」页面修改解析格式后再导入。", detectedFormat, currentFormat),
 			"detected_format": detectedFormat,
 			"current_format":  currentFormat,
 		})
@@ -361,20 +377,20 @@ func (s *Server) importLogs(c *gin.Context) {
 	if statsBefore != nil {
 		countBefore = statsBefore.TotalCount
 	}
-	
+
 	// 再提交到处理理器（跳过注释行和空行）
 	successCount := 0
 	droppedCount := 0
 	batchSize := 1000
 	batchInterval := 100 * time.Millisecond // 每批1小时休息100ms
-	
+
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		// 跳过空行和注释行
 		if len(trimmed) == 0 || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		
+
 		// 尝试提交，如果失败（队列满）则等待重试
 		retryCount := 0
 		submitted := false
@@ -387,11 +403,11 @@ func (s *Server) importLogs(c *gin.Context) {
 			retryCount++
 			time.Sleep(50 * time.Millisecond) // 短暂等待后重试
 		}
-		
+
 		if !submitted {
 			droppedCount++
 		}
-		
+
 		// 每批处理完后休息一下，避免塞满队列
 		if i > 0 && i%batchSize == 0 {
 			time.Sleep(batchInterval)
@@ -402,12 +418,12 @@ func (s *Server) importLogs(c *gin.Context) {
 		log.Printf("[IMPORT] 警告: 丢弃 %d 条日志（队列满）", droppedCount)
 	}
 	log.Printf("[IMPORT] 成功提交 %d 行到处理器", successCount)
-	
+
 	// 等待处理器处理完成（根据数据量计算等待时间）
 	waitTime := time.Duration(successCount/500+2) * time.Second
 	log.Printf("[IMPORT] 等待 %v 让处理器完成处理...", waitTime)
 	time.Sleep(waitTime)
-	
+
 	// 获取导入后的实际日志总数
 	statsAfter, _ := s.storage.Statistics(models.FilterCondition{})
 	countAfter := int64(0)
@@ -415,38 +431,38 @@ func (s *Server) importLogs(c *gin.Context) {
 		countAfter = statsAfter.TotalCount
 	}
 	actualImported := countAfter - countBefore
-	
+
 	if actualImported < int64(successCount) {
-		log.Printf("[IMPORT] 警告: 提交 %d 条，实际导入 %d 条（可能有 %d 条解析失败）", 
+		log.Printf("[IMPORT] 警告: 提交 %d 条，实际导入 %d 条（可能有 %d 条解析失败）",
 			successCount, actualImported, successCount-int(actualImported))
 	}
-	
+
 	// 确定响应状态
 	responseStatus := "ok"
 	warningMsg := ""
-	
+
 	if droppedCount > 0 {
 		responseStatus = "partial"
 		warningMsg = fmt.Sprintf("提交 %d 条，丢弃 %d 条（队列满）", successCount, droppedCount)
 	}
-	
+
 	if actualImported < int64(successCount) {
 		responseStatus = "partial"
 		if warningMsg != "" {
 			warningMsg += "；"
 		}
-		warningMsg += fmt.Sprintf("实际导入 %d 条，% d 条可能格式不匹配", 
+		warningMsg += fmt.Sprintf("实际导入 %d 条，% d 条可能格式不匹配",
 			actualImported, successCount-int(actualImported))
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"status":     responseStatus,
-		"lines":      len(lines),
-		"accepted":   successCount,
-		"imported":   actualImported,
-		"dropped":    droppedCount,
-		"file":       file.Filename,
-		"warning":    warningMsg,
+		"status":   responseStatus,
+		"lines":    len(lines),
+		"accepted": successCount,
+		"imported": actualImported,
+		"dropped":  droppedCount,
+		"file":     file.Filename,
+		"warning":  warningMsg,
 	})
 }
 
@@ -589,7 +605,7 @@ func (s *Server) exportLogs(c *gin.Context) {
 		return
 	}
 
-	log.Printf("[EXPORT] 筛选条件: StartTime=%v, EndTime=%v, StatusCodes=%v", 
+	log.Printf("[EXPORT] 筛选条件: StartTime=%v, EndTime=%v, StatusCodes=%v",
 		req.Filter.StartTime, req.Filter.EndTime, req.Filter.StatusCodes)
 
 	// 查询数据
@@ -665,14 +681,38 @@ func (s *Server) getStatus(c *gin.Context) {
 
 // startReceiver 启动接收器
 func (s *Server) startReceiver(c *gin.Context) {
-	// 接收器已在启动时运行，这里可以添加额外的控制逻辑
-	c.JSON(http.StatusOK, gin.H{"status": "already running"})
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+
+	if s.receiverRunning {
+		c.JSON(http.StatusOK, gin.H{"status": "already running"})
+		return
+	}
+
+	if err := s.startReceiverLocked(s.config.Get().Receiver); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start receiver: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 // stopReceiver 停止接收器
 func (s *Server) stopReceiver(c *gin.Context) {
-	// 接收器控制逻辑
-	c.JSON(http.StatusOK, gin.H{"status": "not implemented"})
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+
+	if !s.receiverRunning {
+		c.JSON(http.StatusOK, gin.H{"status": "already stopped"})
+		return
+	}
+
+	if err := s.stopReceiverLocked(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop receiver: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 // customLoggerConfig 返回自定义的 Gin Logger 配置，添加简短描述
@@ -682,7 +722,7 @@ func customLoggerConfig(writer io.Writer) gin.LoggerConfig {
 		Formatter: func(param gin.LogFormatterParams) string {
 			// 根据状态码和方法生成简短描述
 			desc := getAccessDescription(param.StatusCode, param.Method, param.Path)
-			
+
 			return fmt.Sprintf("[ACCESS] %s | %3d | %13v | %15s | %-7s %s | %s\n",
 				param.TimeStamp.Format("2006/01/02 15:04:05"),
 				param.StatusCode,
@@ -713,7 +753,7 @@ func getAccessDescription(statusCode int, method, path string) string {
 	case statusCode >= 300:
 		return "[重定向]"
 	}
-	
+
 	// 200/201 成功状态，根据路径和方法进一步描述
 	if statusCode >= 200 && statusCode < 300 {
 		// 静态资源
@@ -723,7 +763,7 @@ func getAccessDescription(statusCode int, method, path string) string {
 		if path == "/static/css/style.css" || path == "/static/js/app.js" {
 			return "[加载资源]"
 		}
-		
+
 		// API 接口
 		switch path {
 		case "/api/config":
@@ -749,7 +789,7 @@ func getAccessDescription(statusCode int, method, path string) string {
 			return "[接口调用]"
 		}
 	}
-	
+
 	return "[未知操作]"
 }
 
@@ -770,45 +810,45 @@ func compareReceiverConfig(a, b config.ReceiverConfig) bool {
 	if a.HTTPRateLimit != b.HTTPRateLimit {
 		return false
 	}
+	if a.HTTPMaxBodySize != b.HTTPMaxBodySize {
+		return false
+	}
 	if a.BufferSize != b.BufferSize {
 		return false
 	}
-	// 比较IP白名单
-	if len(a.HTTPAllowedIPs) != len(b.HTTPAllowedIPs) {
+	if a.FileWatcherEnabled != b.FileWatcherEnabled {
 		return false
 	}
-	for i, ip := range a.HTTPAllowedIPs {
-		if ip != b.HTTPAllowedIPs[i] {
-			return false
-		}
+	if a.MaxConnections != b.MaxConnections {
+		return false
 	}
-	return true
+	if !compareStringSlices(a.HTTPAllowedIPs, b.HTTPAllowedIPs) {
+		return false
+	}
+	return compareStringSlices(a.WatchPaths, b.WatchPaths)
 }
 
 // restartReceivers 重启接收器
 func (s *Server) restartReceivers(newCfg config.ReceiverConfig) error {
-	// 停止当前接收器
-	if err := s.receiver.Stop(); err != nil {
-		log.Printf("[WARN] 停止接收器时出现错误: %v", err)
-		// 继续，尝试启动新的接收器
-	}
-	
-	// 创建新的接收器管理器
-	s.receiver = receiver.NewManager(newCfg)
-	
-	// 启动新的接收器
-	err := s.receiver.Start(func(line string) bool {
-		if !s.processor.Submit(line) {
-			log.Printf("处理器队列已满，丢弃日志: %s", line[:min(50, len(line))])
-			return false
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+
+	wasRunning := s.receiverRunning
+	if wasRunning {
+		if err := s.stopReceiverLocked(); err != nil {
+			log.Printf("[WARN] failed to stop receiver before restart: %v", err)
 		}
-		return true
-	})
-	
-	if err != nil {
-		return fmt.Errorf("启动接收器失败: %v", err)
 	}
-	
+
+	if !wasRunning {
+		s.receiver = receiver.NewManager(newCfg)
+		return nil
+	}
+
+	if err := s.startReceiverLocked(newCfg); err != nil {
+		return fmt.Errorf("failed to start receiver: %w", err)
+	}
+
 	return nil
 }
 
@@ -829,7 +869,7 @@ func getExtension(format string) string {
 // getStorageInfo 获取存储信息
 func (s *Server) getStorageInfo(c *gin.Context) {
 	info := gin.H{
-		"type": s.config.Get().Storage.Type,
+		"type":    s.config.Get().Storage.Type,
 		"db_path": s.config.Get().Storage.DBPath,
 	}
 
@@ -849,39 +889,114 @@ func (s *Server) getStorageInfo(c *gin.Context) {
 // compactStorage 压缩数据库（释放未使用空间）
 func (s *Server) compactStorage(c *gin.Context) {
 	if s.config.Get().Storage.Type != "sqlite" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only SQLite supports compact"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only SQLite supports compact"})
 		return
 	}
 
-	// 获取压缩前大小
 	dbPath := s.config.Get().Storage.DBPath
 	var sizeBefore int64
 	if stat, err := os.Stat(dbPath); err == nil {
 		sizeBefore = stat.Size()
 	}
 
-	// 执行VACUUM命令压缩数据库
-	sqliteStorage, ok := s.storage.(*storage.SQLiteStorage)
+	vacuumer, ok := s.storage.(interface {
+		Vacuum() error
+	})
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Storage type mismatch"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "storage does not support compact"})
 		return
 	}
 
-	if err := sqliteStorage.Vacuum(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Vacuum failed: " + err.Error()})
+	if err := vacuumer.Vacuum(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "vacuum failed: " + err.Error()})
 		return
 	}
 
-	// 获取压缩后大小
 	var sizeAfter int64
 	if stat, err := os.Stat(dbPath); err == nil {
 		sizeAfter = stat.Size()
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status": "ok",
+		"status":            "ok",
 		"size_before_bytes": sizeBefore,
-		"size_after_bytes": sizeAfter,
-		"freed_bytes": sizeBefore - sizeAfter,
+		"size_after_bytes":  sizeAfter,
+		"freed_bytes":       sizeBefore - sizeAfter,
 	})
+}
+
+func mergeConfigSection(payload map[string]interface{}, key string, target interface{}) error {
+	raw, ok := payload[key]
+	if !ok {
+		return nil
+	}
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("failed to encode %s config: %w", key, err)
+	}
+
+	if err := json.Unmarshal(data, target); err != nil {
+		return fmt.Errorf("invalid %s config: %w", key, err)
+	}
+
+	return nil
+}
+
+func compareStorageConfig(a, b config.StorageConfig) bool {
+	return a.Type == b.Type &&
+		a.DBPath == b.DBPath &&
+		a.MaxMemoryItems == b.MaxMemoryItems &&
+		a.RetentionHours == b.RetentionHours
+}
+
+func compareStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) applyStorageConfig(cfg config.StorageConfig) error {
+	updater, ok := s.storage.(interface {
+		UpdateConfig(config.StorageConfig) error
+	})
+	if !ok {
+		return fmt.Errorf("storage backend does not support runtime update")
+	}
+	return updater.UpdateConfig(cfg)
+}
+
+func (s *Server) startReceiverLocked(cfg config.ReceiverConfig) error {
+	s.receiver = receiver.NewManager(cfg)
+	if err := s.receiver.Start(func(line string) bool {
+		if !s.processor.Submit(line) {
+			log.Printf("processor queue full, dropped log: %s", line[:min(50, len(line))])
+			return false
+		}
+		return true
+	}); err != nil {
+		return err
+	}
+	s.receiverRunning = true
+	return nil
+}
+
+func (s *Server) stopReceiverLocked() error {
+	if s.receiver == nil {
+		s.receiverRunning = false
+		return nil
+	}
+
+	if err := s.receiver.Stop(); err != nil {
+		return err
+	}
+
+	s.receiverRunning = false
+	return nil
 }

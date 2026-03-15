@@ -388,11 +388,15 @@ func (s *SQLiteStorage) cleanupRoutine() {
 
 // cleanup 清理过期数据
 func (s *SQLiteStorage) cleanup() {
-	if s.config.RetentionHours <= 0 {
+	s.mu.RLock()
+	retentionHours := s.config.RetentionHours
+	s.mu.RUnlock()
+
+	if retentionHours <= 0 {
 		return
 	}
 
-	cutoff := time.Now().Add(-time.Duration(s.config.RetentionHours) * time.Hour)
+	cutoff := time.Now().Add(-time.Duration(retentionHours) * time.Hour)
 	_, err := s.db.Exec("DELETE FROM logs WHERE timestamp < ?", cutoff)
 	if err != nil {
 		log.Printf("Cleanup failed: %v", err)
@@ -439,9 +443,18 @@ func (s *SQLiteStorage) Vacuum() error {
 	return err
 }
 
+func (s *SQLiteStorage) UpdateConfig(cfg config.StorageConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.config.Type = cfg.Type
+	s.config.DBPath = cfg.DBPath
+	s.config.MaxMemoryItems = cfg.MaxMemoryItems
+	s.config.RetentionHours = cfg.RetentionHours
+	return nil
+}
+
 // Close 关闭存储
 func (s *SQLiteStorage) Close() error {
 	return s.db.Close()
 }
-
-

@@ -3,7 +3,9 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"log-processor/internal/config"
 	"log-processor/internal/models"
 	"sync"
 	"time"
@@ -12,11 +14,11 @@ import (
 // AsyncStorage 异步存储包装器
 // 通过缓冲队列和批量写入最大化 SQLite 单线程性能
 type AsyncStorage struct {
-	storage       Storage                    // 底层存储
-	buffer        chan *models.LogEntry      // 写入缓冲队列
-	batchSize     int                        // 批量大小
-	flushInterval time.Duration              // 强制刷新间隔
-	wg            sync.WaitGroup             
+	storage       Storage               // 底层存储
+	buffer        chan *models.LogEntry // 写入缓冲队列
+	batchSize     int                   // 批量大小
+	flushInterval time.Duration         // 强制刷新间隔
+	wg            sync.WaitGroup
 	ctx           context.Context
 	cancel        context.CancelFunc
 	mu            sync.RWMutex
@@ -35,7 +37,7 @@ type AsyncStats struct {
 // NewAsyncStorage 创建异步存储
 func NewAsyncStorage(storage Storage, bufferSize int, batchSize int, flushInterval time.Duration) *AsyncStorage {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	as := &AsyncStorage{
 		storage:       storage,
 		buffer:        make(chan *models.LogEntry, bufferSize),
@@ -44,14 +46,14 @@ func NewAsyncStorage(storage Storage, bufferSize int, batchSize int, flushInterv
 		ctx:           ctx,
 		cancel:        cancel,
 	}
-	
+
 	// 启动写入协程
 	as.wg.Add(1)
 	go as.writeLoop()
-	
+
 	log.Printf("[AsyncStorage] 启动异步存储: buffer=%d, batch=%d, interval=%v",
 		bufferSize, batchSize, flushInterval)
-	
+
 	return as
 }
 
@@ -89,11 +91,11 @@ func (as *AsyncStorage) SaveBatch(entries []*models.LogEntry) error {
 // writeLoop 写入循环
 func (as *AsyncStorage) writeLoop() {
 	defer as.wg.Done()
-	
+
 	batch := make([]*models.LogEntry, 0, as.batchSize)
 	ticker := time.NewTicker(as.flushInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case entry, ok := <-as.buffer:
@@ -104,23 +106,23 @@ func (as *AsyncStorage) writeLoop() {
 				}
 				return
 			}
-			
+
 			batch = append(batch, entry)
-			
+
 			// 达到批次大小立即刷新
 			if len(batch) >= as.batchSize {
 				as.flush(batch)
 				batch = make([]*models.LogEntry, 0, as.batchSize)
 				ticker.Reset(as.flushInterval)
 			}
-			
+
 		case <-ticker.C:
 			// 定时刷新，避免数据滞留
 			if len(batch) > 0 {
 				as.flush(batch)
 				batch = make([]*models.LogEntry, 0, as.batchSize)
 			}
-			
+
 		case <-as.ctx.Done():
 			// 处理剩余数据
 			for entry := range as.buffer {
@@ -143,17 +145,17 @@ func (as *AsyncStorage) flush(batch []*models.LogEntry) {
 	if len(batch) == 0 {
 		return
 	}
-	
+
 	start := time.Now()
-	
+
 	// 使用底层存储批量保存
 	if err := as.storage.SaveBatch(batch); err != nil {
 		log.Printf("[ERROR] AsyncStorage 批量保存失败: %v", err)
 		return
 	}
-	
+
 	latency := time.Since(start).Milliseconds()
-	
+
 	as.mu.Lock()
 	as.stats.FlushedCount += int64(len(batch))
 	as.stats.BufferedCount -= int64(len(batch))
@@ -188,27 +190,47 @@ func (as *AsyncStorage) Clear() error {
 	return as.storage.Clear()
 }
 
+func (as *AsyncStorage) UpdateConfig(cfg config.StorageConfig) error {
+	updater, ok := as.storage.(interface {
+		UpdateConfig(config.StorageConfig) error
+	})
+	if !ok {
+		return fmt.Errorf("underlying storage does not support runtime config update")
+	}
+	return updater.UpdateConfig(cfg)
+}
+
+func (as *AsyncStorage) Vacuum() error {
+	vacuumer, ok := as.storage.(interface {
+		Vacuum() error
+	})
+	if !ok {
+		return fmt.Errorf("underlying storage does not support vacuum")
+	}
+	return vacuumer.Vacuum()
+}
+
 // Close 关闭
 func (as *AsyncStorage) Close() error {
 	log.Println("[AsyncStorage] 正在关闭...")
-	
+
 	as.cancel()
 	close(as.buffer)
-	
+
 	// 等待写入完成
 	done := make(chan struct{})
 	go func() {
 		as.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		log.Println("[AsyncStorage] 写入协程已退出")
 	case <-time.After(10 * time.Second):
 		log.Println("[WARN] AsyncStorage 关闭超时")
 	}
-	
+
 	return as.storage.Close()
 }
 

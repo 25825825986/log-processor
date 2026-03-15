@@ -1724,10 +1724,6 @@ async function saveConfig() {
     }
     
     const config = {
-        server: {
-            host: "0.0.0.0",
-            port: 8080
-        },
         processor: {
             worker_count: parseInt(document.getElementById('processor-workers')?.value) || 10,
             batch_size: parseInt(document.getElementById('processor-batch-size')?.value) || 100,
