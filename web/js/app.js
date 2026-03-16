@@ -1,17 +1,17 @@
-﻿// 閸忋劌鐪悩鑸碘偓?
+﻿// 页面状态
 let currentPage = 1;
 let currentLimit = 20;
 let currentTotal = 0;
 let currentFilter = {};
 let currentTab = 'dashboard';
 
-// 鐠佸墽鐤嗘穱婵堟殌閺冨爼妫?
+// 设置存储保留时间
 function setRetention(hours) {
     document.getElementById('storage-retention').value = hours;
     updateRetentionButtons(hours);
 }
 
-// 閺囧瓨鏌婃穱婵堟殌閺冨爼妫块幐澶愭尦閻樿埖鈧?
+// 根据当前保留时间更新快捷按钮状态
 function updateRetentionButtons(currentHours) {
     document.querySelectorAll('.retention-btn').forEach(btn => {
         const btnHours = parseInt(btn.dataset.hours);
@@ -23,7 +23,7 @@ function updateRetentionButtons(currentHours) {
     });
 }
 
-// 閻╂垵鎯夋穱婵堟殌閺冨爼妫挎潏鎾冲弳濡楀棗褰夐崠?
+// 初始化存储保留时间输入框事件
 document.addEventListener('DOMContentLoaded', () => {
     const retentionInput = document.getElementById('storage-retention');
     if (retentionInput) {
@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// 閺冨爼妫块弽鐓庣础妫板嫯顔曢柊宥囩枂 (娴滆櫣琚崣顖濐嚢閻ㄥ嫬鎮曠粔鏉挎嫲缁€杞扮伐)
+// 时间格式预设（用于日志解析配置）
 const TIME_FORMAT_PRESETS = [
     {
         id: 'nginx',
@@ -79,7 +79,7 @@ const TIME_FORMAT_PRESETS = [
     }
 ];
 
-// 閺冦儱绻旈弽鐓庣础鐎电懓绨查惃鍕闂傚瓨鐗稿?
+// 日志格式与建议时间格式映射
 const FORMAT_TIME_MAPPING = {
     'nginx': '02/Jan/2006:15:04:05 -0700',
     'apache': '02/Jan/2006:15:04:05 -0700',
@@ -245,7 +245,7 @@ function initTimePickers() {
     applyTimePreset('filter', '24h');
 }
 
-// 閺佹澘鐡ф潏鎾冲弳濡楀棝鐛欑拠渚€鍘ょ純?
+// 数字输入项的取值范围
 const NUMBER_INPUT_LIMITS = {
     'processor-workers': { min: 1, max: 100 },
     'processor-batch-size': { min: 10, max: 10000 },
@@ -258,30 +258,30 @@ const NUMBER_INPUT_LIMITS = {
     'receiver-http-port': { min: 1, max: 65535 },
     'receiver-http-rate': { min: 0, max: 100000 },
     'receiver-buffer': { min: 1024, max: 65536 },
-    'storage-retention': { min: 1, max: 8760 }, // 閺堚偓婢?楠?8760鐏忓繑妞?
+    'storage-retention': { min: 1, max: 8760 }, // 最长支持 8760 小时
     'benchmark-duration': { min: 3, max: 300 },
     'benchmark-workers': { min: 1, max: 200 },
     'benchmark-target-qps': { min: 0, max: 1000000 }
 };
 
-// 閸掓繂顫愰崠鏍ㄦ殶鐎涙绶崗銉︻攱妤犲矁鐦?
+// 初始化数字输入校验
 function initNumberValidation() {
     Object.keys(NUMBER_INPUT_LIMITS).forEach(id => {
         const input = document.getElementById(id);
         if (input) {
             const limits = NUMBER_INPUT_LIMITS[id];
             
-            // 鏉堟挸鍙嗛弮鍫曠崣鐠?
+            // 输入时即时限制范围
             input.addEventListener('input', function() {
                 let value = parseInt(this.value);
                 
-                // 濞撳懘娅庨棃鐐存殶鐎涙鐡х粭?
+                // 非数字时回退到最小值
                 if (isNaN(value)) {
                     this.value = limits.min;
                     return;
                 }
                 
-                // 闂勬劕鍩楅懠鍐ㄦ纯
+                // 超出范围时给出提示
                 if (value < limits.min) {
                     this.value = limits.min;
                     showInputHint(this, `最小值为 ${limits.min}`);
@@ -291,7 +291,7 @@ function initNumberValidation() {
                 }
             });
             
-            // 婢跺崬骞撻悞锔惧仯閺冨爼鐛欑拠?
+            // 失焦时再次兜底
             input.addEventListener('blur', function() {
                 let value = parseInt(this.value);
                 if (isNaN(value) || value < limits.min) {
@@ -304,13 +304,13 @@ function initNumberValidation() {
     });
 }
 
-// 閺勫墽銇氭潏鎾冲弳閹绘劗銇?
+// 显示输入提示
 function showInputHint(input, message) {
-    // 缁夊娅庨弮褏娈戦幓鎰仛
+    // 先移除旧提示
     const oldHint = input.parentElement.querySelector('.input-hint');
     if (oldHint) oldHint.remove();
     
-    // 閸掓稑缂撻弬鐗堝絹缁€?
+    // 创建新的提示节点
     const hint = document.createElement('span');
     hint.className = 'input-hint';
     hint.textContent = message;
@@ -318,11 +318,11 @@ function showInputHint(input, message) {
     
     input.parentElement.appendChild(hint);
     
-    // 3缁夋帒鎮楃粔濠氭珟
+    // 3 秒后自动消失
     setTimeout(() => hint.remove(), 3000);
 }
 
-// 妤犲矁鐦夐幍鈧張澶嬫殶鐎涙绶崗?
+// 保存前统一校验数字输入
 function validateNumberInputs() {
     let isValid = true;
     Object.keys(NUMBER_INPUT_LIMITS).forEach(id => {
@@ -342,7 +342,7 @@ function validateNumberInputs() {
     return isValid;
 }
 
-// 閸掓繂顫愰崠?
+// 页面初始化
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[App] Initializing...');
     
@@ -351,10 +351,10 @@ document.addEventListener('DOMContentLoaded', () => {
     initUploadZone();
     initTimePickers();
     initFormatListeners();
-    initNumberValidation(); // 閸掓繂顫愰崠鏍ㄦ殶鐎涙鐛欑拠?
-    initExportPreview(); // 閸掓繂顫愰崠鏍ь嚤閸戞椽顣╃憴?
+    initNumberValidation(); // 初始化数字输入校验
+    initExportPreview(); // 初始化导出预览
     
-    // 瀵ゆ儼绻滈崝鐘烘祰娴狀亣銆冮弶鎸庢殶閹诡噯绱濈涵顔荤箽DOM鐎瑰苯鍙忓〒鍙夌厠
+    // 等 DOM 和样式稳定后再加载概览，避免首屏抖动
     setTimeout(() => {
         console.log('[App] Loading dashboard...');
         loadDashboard();
@@ -365,9 +365,9 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('[App] Initialization complete');
 });
 
-// 閸掓繂顫愰崠鏍ь嚤閸戞椽顣╃憴?
+// 初始化导出预览
 function initExportPreview() {
-    // 閻╂垵鎯夐弮鍫曟？閼煎啫娲块崣妯哄
+    // 监听时间范围变化
     const startTimeInput = document.getElementById('export-start-time');
     const endTimeInput = document.getElementById('export-end-time');
     
@@ -378,28 +378,28 @@ function initExportPreview() {
         endTimeInput.addEventListener('change', updateExportPreview);
     }
     
-    // 閸掓繂顫愰弴瀛樻煀娑撯偓濞?
+    // 首次进入时先刷新一次
     updateExportPreview();
 }
 
-// 閸掓繂顫愰崠鏍ㄧ壐瀵繒娲冮崥顒€娅?
+// 初始化格式相关交互
 function initFormatListeners() {
-    // 閺冦儱绻旈弽鐓庣础閸欐ê瀵查弮鎯板殰閸斻劏顔曠純顔碱嚠鎼存梻娈戦弮鍫曟？閺嶇厧绱?
+    // 监听日志格式变化，自动推荐匹配的时间格式
     const formatSelect = document.getElementById('parser-format');
     if (formatSelect) {
         formatSelect.addEventListener('change', onLogFormatChange);
     }
     
-    // 閸掓繂顫愰崠鏍ㄦ闂傚瓨鐗稿蹇撳幢閻?
+    // 初始化时间格式卡片
     initTimeFormatCards();
     
-    // 閸掓繂顫愰崠鏍帳缂冾噣銆夐棃顫唉娴?
+    // 初始化配置区按钮与映射编辑器
     initConfigInteractions();
 }
 
-// 閸掓繂顫愰崠鏍帳缂冾噣銆夐棃顫唉娴?
+// 初始化配置区交互
 function initConfigInteractions() {
-    // 閺嶇厧绱￠崡锛勫闁瀚?
+    // 日志格式卡片选择
     document.querySelectorAll('.format-card').forEach(card => {
         card.addEventListener('click', () => {
             document.querySelectorAll('.format-card').forEach(c => c.classList.remove('active'));
@@ -409,7 +409,7 @@ function initConfigInteractions() {
         });
     });
     
-    // 閸掑棝娈х粭锕傗偓澶嬪
+    // 分隔符快捷按钮
     document.querySelectorAll('.delimiter-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.delimiter-btn').forEach(b => b.classList.remove('active'));
@@ -419,7 +419,7 @@ function initConfigInteractions() {
         });
     });
     
-    // 缂傛挸鍟块崠娲偓澶嬪
+    // 缓冲区快捷按钮
     document.querySelectorAll('.buffer-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.buffer-btn').forEach(b => b.classList.remove('active'));
@@ -429,14 +429,14 @@ function initConfigInteractions() {
         });
     });
     
-    // 娣囨繄鏆€缁涙牜鏆愰柅澶嬪
+    // 保留时间快捷按钮
     document.querySelectorAll('.retention-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             setRetention(parseInt(btn.dataset.hours));
         });
     });
     
-    // 閸掓繂顫愰崠鏍帛鐠併倕鐡у▓鍨Ё鐏忓嫸绱欐俊鍌涚亯閸掓銆冩稉铏光敄閿?
+    // 如果字段映射为空，填入常用默认映射
     const mappingList = document.getElementById('mapping-list');
     if (mappingList && mappingList.children.length === 0) {
         addMappingRow('0', 'client_ip');
@@ -446,7 +446,7 @@ function initConfigInteractions() {
     }
 }
 
-// 閸掓繂顫愰崠鏍ㄦ闂傚瓨鐗稿蹇撳幢閻?
+// 初始化时间格式卡片
 function initTimeFormatCards() {
     const container = document.getElementById('time-format-cards');
     if (!container) return;
@@ -461,7 +461,7 @@ function initTimeFormatCards() {
     `).join('');
 }
 
-// 闁瀚ㄩ弮鍫曟？閺嶇厧绱?
+// 选择时间格式
 function selectTimeFormat(format, cardElement) {
     const input = document.getElementById('parser-time-format');
     if (input) input.value = format;
@@ -471,17 +471,17 @@ function selectTimeFormat(format, cardElement) {
     });
     if (cardElement) cardElement.classList.add('active');
     
-    // 閺囧瓨鏌婃０鍕潔
+    // 同步更新时间格式预览
     updateTimeFormatPreview(format);
 }
 
-// 閺冦儱绻旈弽鐓庣础閸欐ê瀵叉径鍕倞
+// 日志格式变化时自动匹配时间格式
 function onLogFormatChange() {
     const format = document.getElementById('parser-format').value;
     const suggestedTimeFormat = FORMAT_TIME_MAPPING[format];
     
     if (suggestedTimeFormat) {
-        // 閺屻儲澹樼€电懓绨查惃鍕幢閻?
+        // 找到匹配卡片后自动选中
         const cards = document.querySelectorAll('.time-format-card');
         cards.forEach(card => {
             if (card.dataset.format === suggestedTimeFormat) {
@@ -491,17 +491,17 @@ function onLogFormatChange() {
     }
 }
 
-// 閺囧瓨鏌婇弮鍫曟？閺嶇厧绱℃０鍕潔
+// 更新时间格式示例预览
 function updateTimeFormatPreview(format) {
     const previewValue = document.getElementById('preview-value');
     if (!previewValue) return;
     
-    // 閺屻儲澹樻０鍕啎閻ㄥ嫮銇氭笟?
+    // 优先使用预设示例
     const preset = TIME_FORMAT_PRESETS.find(p => p.format === format);
     if (preset) {
         previewValue.textContent = preset.example;
     } else {
-        // 閸斻劍鈧胶鏁撻幋鎰仛娓?
+        // 否则按当前时间拼出一个示例
         const now = new Date();
         const example = format
             .replace('2006', now.getFullYear())
@@ -518,7 +518,7 @@ function updateTimeFormatPreview(format) {
     }
 }
 
-// 閺嶅洨顒锋い闈涘瀼閹?
+// 初始化顶部标签切换
 function initTabs() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -530,7 +530,7 @@ function initTabs() {
             document.getElementById(tabId).classList.add('active');
             currentTab = tabId;
             
-            // 閸旂姾娴囩€电懓绨查弫鐗堝祦
+            // 切换标签后加载对应数据
             if (tabId === 'dashboard') {
                 loadDashboard();
             } else if (tabId === 'query') {
@@ -540,7 +540,7 @@ function initTabs() {
     });
 }
 
-// 闁板秶鐤嗛弽鍥╊劮妞ら潧鍨忛幑?
+// 初始化配置子标签
 function initConfigTabs() {
     document.querySelectorAll('.config-tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -554,7 +554,7 @@ function initConfigTabs() {
     });
 }
 
-// 鐠嬪啯鏆ｉ弫鏉跨摟鏉堟挸鍙嗛崐?
+// 调整数值输入框
 function adjustNumber(inputId, delta) {
     const input = document.getElementById(inputId);
     if (!input) return;
@@ -565,14 +565,14 @@ function adjustNumber(inputId, delta) {
     input.value = Math.max(min, Math.min(max, current + delta * step));
 }
 
-// 閻㈢喐鍨氶梾蹇旀簚Token
+// 生成访问令牌
 function generateToken() {
     const token = 'tk_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
     const input = document.getElementById('receiver-http-token');
     if (input) input.value = token;
 }
 
-// 婢跺秴鍩楃捄顖氱窞閸掓澘澹€鐠愬瓨婢?
+// 复制数据库路径
 function copyPath() {
     const pathText = document.getElementById('storage-path-text');
     if (pathText) {
@@ -582,7 +582,7 @@ function copyPath() {
     }
 }
 
-// 閸掓繂顫愰崠鏍︾瑐娴肩姴灏崺?
+// 初始化导入上传区域
 function initUploadZone() {
     const zone = document.getElementById('upload-zone');
     const input = document.getElementById('file-input');
@@ -703,7 +703,7 @@ function importFileWithProgress(file, importId, onUploadProgress, onServerProces
     });
 }
 
-// 婢跺嫮鎮婇弬鍥︽娑撳﹣绱?
+// 处理导入文件
 async function handleFiles(files) {
     const fileList = Array.from(files || []);
     if (fileList.length === 0) return;
@@ -946,7 +946,7 @@ async function handleFiles(files) {
         setTimeout(() => loadDashboard(), 500);
     }
 }
-// 鍔犺浇浠〃鐩樻暟鎹?
+// 加载概览统计数据
 async function loadDashboard() {
     try {
         const response = await fetch('/api/statistics');
@@ -957,7 +957,7 @@ async function loadDashboard() {
         const stats = await response.json();
         console.log('Dashboard data:', stats);
         
-        // 閺囧瓨鏌婄紒鐔活吀閸楋紕澧?
+        // 更新顶部统计卡片
         const totalCount = stats.total_count || 0;
         const errorCount = stats.error_count || 0;
         const avgResponse = stats.avg_response_time || 0;
@@ -968,7 +968,7 @@ async function loadDashboard() {
         document.getElementById('system-status').textContent = '运行中';
         document.getElementById('system-status').className = 'stat-value';
         
-        // 鐠侊紕鐣婚柨娆掝嚖閻?
+        // 计算错误率
         if (totalCount > 0) {
             const errorRate = ((errorCount / totalCount) * 100).toFixed(1);
             document.getElementById('error-rate').textContent = `错误率 ${errorRate}%`;
@@ -976,13 +976,13 @@ async function loadDashboard() {
             document.getElementById('error-rate').textContent = '';
         }
         
-        // 閺囧瓨鏌婇弮鍫曟？閹?
+        // 更新刷新时间
         document.getElementById('last-update').textContent = '刚刚更新';
         
-        // 濞撳弶鐓嬮崶鎹愩€?
+        // 渲染状态码与方法分布
         renderStatusChart(stats.status_code_dist || {});
         renderMethodChart(stats.method_dist || {});
-        // 閺冨爼妫跨搾瀣◢閸ユ崘銆冨鑼╅梽?
+        // 趋势图接口可按需补充
         
     } catch (error) {
         console.error('Failed to load dashboard:', error);
@@ -990,14 +990,14 @@ async function loadDashboard() {
         document.getElementById('system-status').className = 'stat-value error';
         document.getElementById('last-update').textContent = '刷新失败';
         
-        // 閺勫墽銇氱粚铏瑰Ц閹?
+        // 加载失败时显示空态
         renderEmptyChart('status-chart', '暂无数据');
         renderEmptyChart('method-chart', '暂无数据');
-        // 閺冨爼妫跨搾瀣◢閸ユ崘銆冨鑼╅梽?
+        // 趋势图接口可按需补充
     }
 }
 
-// 濞撳弶鐓嬬粚鍝勬禈鐞涖劎濮搁幀?
+// 渲染空状态图表
 function renderEmptyChart(containerId, message) {
     const container = document.getElementById(containerId);
     if (container) {
@@ -1010,7 +1010,7 @@ function renderEmptyChart(containerId, message) {
     }
 }
 
-// 閸掗攱鏌婃禒顏囥€冮弶?
+// 手动刷新概览
 function refreshDashboard() {
     const btn = document.querySelector('.btn-icon .fa-sync-alt');
     if (btn) {
@@ -1020,7 +1020,7 @@ function refreshDashboard() {
     loadDashboard();
 }
 
-// 閸掑洦宕查弽鍥╊劮妞?
+// 切换主导航标签
 function switchTab(tabName) {
     const tabBtn = document.querySelector(`.nav-btn[data-tab="${tabName}"]`);
     if (tabBtn) {
@@ -1028,7 +1028,7 @@ function switchTab(tabName) {
     }
 }
 
-// 濞撳弶鐓嬮悩鑸碘偓浣虹垳閸ユ崘銆?- 閸楋紕澧栧蹇氼啎鐠?
+// 渲染状态码分布卡片
 function renderStatusChart(data) {
     const container = document.getElementById('status-chart');
     const totalEl = document.getElementById('status-total');
@@ -1088,7 +1088,7 @@ function formatCompactNumber(num) {
     return num.toString();
 }
 
-// 濞撳弶鐓嬮弬瑙勭《閸ユ崘銆?- 閻滎垰鑸伴崶鎹愵啎鐠?
+// 渲染请求方法分布
 function renderMethodChart(data) {
     const container = document.getElementById('method-chart');
     const totalEl = document.getElementById('method-total');
@@ -1192,12 +1192,12 @@ function renderTrendChart(data) {
     const max = Math.max(...data.map(d => d.count || 0));
     const total = data.reduce((sum, d) => sum + (d.count || 0), 0);
     
-    // 閸欘亝妯夌粈鐑樻付鏉?0娑擃亞鍋?
+    // 只展示最近 30 个时间点
     const displayData = data.slice(-30);
     
     let html = '<div style="padding: 16px 0;">';
     
-    // 缂佺喕顓告穱鈩冧紖
+    // 顶部统计信息
     html += `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 12px 16px; background: var(--bg-secondary); border-radius: 8px;">
             <div style="font-size: 13px; color: var(--text-secondary);">
@@ -1210,7 +1210,7 @@ function renderTrendChart(data) {
         </div>
     `;
     
-    // 閺岃京濮搁崶?
+    // 柱状图主体
     html += '<div class="trend-chart" style="display: flex; align-items: flex-end; gap: 4px; height: 180px; padding: 10px 0; border-bottom: 1px solid var(--border-light);">';
     
     displayData.forEach((point, index) => {
@@ -1219,12 +1219,12 @@ function renderTrendChart(data) {
         const time = point.time || point.Time || '';
         const displayTime = formatTime(time);
         
-        // 閺嶈宓侀弫浼村櫤鐠佸墽鐤嗘０婊嗗
+        // 根据数量区间设置颜色
         let color = 'var(--primary)';
-        if (count >= max * 0.8) color = '#52c41a'; // 妤傛ê鍢?- 缂?
-        else if (count >= max * 0.5) color = '#1890ff'; // 娑擃厾鐡?- 閽?
-        else if (count >= max * 0.2) color = '#faad14'; // 鏉堝啩缍?- 姒?
-        else color = '#d9d9d9'; // 瀵板牅缍?- 閻?
+        if (count >= max * 0.8) color = '#52c41a'; // 高峰
+        else if (count >= max * 0.5) color = '#1890ff'; // 较高
+        else if (count >= max * 0.2) color = '#faad14'; // 中等
+        else color = '#d9d9d9'; // 较低
         
         html += `
             <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 8px;">
@@ -1238,7 +1238,7 @@ function renderTrendChart(data) {
     
     html += '</div>';
     
-    // 閺冨爼妫挎潪瀛樼垼缁涙拝绱欓弰鍓с仛瀵偓婵鈧椒鑵戦梻娣偓浣虹波閺夌噦绱?
+    // 底部只显示首、中、尾三个时间刻度，避免过密
     const midIndex = Math.floor(displayData.length / 2);
     html += `
         <div style="display: flex; justify-content: space-between; margin-top: 8px; padding: 0 4px; font-size: 11px; color: var(--text-tertiary);">
@@ -1248,7 +1248,7 @@ function renderTrendChart(data) {
         </div>
     `;
     
-    // 閸ュ彞绶?
+    // 图例
     html += `
         <div style="display: flex; justify-content: center; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-light);">
             <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
@@ -1274,10 +1274,10 @@ function renderTrendChart(data) {
     container.innerHTML = html;
 }
 
-// 閺嶇厧绱￠崠鏍ㄦ闂傚瓨妯夌粈?
+// 格式化时间显示
 function formatTime(timeStr) {
     if (!timeStr) return '-';
-    // 婢跺嫮鎮婃稉宥呮倱閺嶇厧绱? 2026-03-10 13:45 閹?2026-03-10T13:45:00+08:00
+    // 兼容 2026-03-10 13:45 和 2026-03-10T13:45:00+08:00
     const date = new Date(timeStr.replace(' ', 'T'));
     if (isNaN(date.getTime())) return timeStr;
     
@@ -1286,7 +1286,7 @@ function formatTime(timeStr) {
     return `${hours}:${minutes}`;
 }
 
-// 閺屻儴顕楅弮銉ョ箶
+// 查询日志
 async function queryLogs() {
     const startTime = document.getElementById('filter-start-time').value;
     const endTime = document.getElementById('filter-end-time').value;
@@ -1294,7 +1294,7 @@ async function queryLogs() {
     const statusCodes = Array.from(document.querySelectorAll('#filter-status .status-tag.active')).flatMap(btn => btn.dataset.value.split(','));
     const keyword = document.getElementById('filter-keyword').value;
     
-    // 閺勫墽銇氬鏌モ偓澶岀摣闁娼禒?
+    // 更新当前筛选标签
     updateActiveFilters({ startTime, endTime, methods, statusCodes, keyword });
     
     const params = new URLSearchParams();
@@ -1319,7 +1319,7 @@ async function queryLogs() {
     }
 }
 
-// 濞撳弶鐓嬮弮銉ョ箶鐞涖劍鐗?
+// 渲染日志表格
 function renderLogsTable(logs) {
     const tbody = document.querySelector('#logs-table tbody');
     tbody.innerHTML = '';
@@ -1347,7 +1347,7 @@ function renderLogsTable(logs) {
         tbody.appendChild(row);
     });
     
-    // 缂佹垵鐣炬禍瀣╂閻╂垵鎯夐崳?
+    // 绑定查看和删除按钮事件
     tbody.querySelectorAll('.btn-view').forEach(btn => {
         btn.addEventListener('click', () => {
             const log = JSON.parse(btn.dataset.log);
@@ -1363,14 +1363,14 @@ function renderLogsTable(logs) {
     });
 }
 
-// 閸掔娀娅庨崡鏇熸蒋閺冦儱绻?
+// 删除单条日志
 async function deleteLog(id) {
     if (!confirm('确定要删除这条日志吗？')) {
         return;
     }
     
     try {
-        // 鐎?ID 鏉╂稖顢?URL 缂傛牜鐖滈敍宀勪缉閸忓秶澹掑▓濠傜摟缁楋箓妫舵０?
+        // ID 可能包含特殊字符，先编码再拼接 URL
         const encodedId = encodeURIComponent(id);
         const response = await fetch(`/api/logs/${encodedId}`, {
             method: 'DELETE'
@@ -1388,8 +1388,8 @@ async function deleteLog(id) {
         
         if (response.ok) {
             alert('删除成功');
-            queryLogs(); // 閸掗攱鏌婇崚妤勩€?
-            // 婵″倹鐏夎ぐ鎾冲閸︺劍顩х憴鍫ャ€夐敍灞肩瘍閸掗攱鏌婄紒鐔活吀閺佺増宓?
+            queryLogs(); // 删除后刷新列表
+            // 如果当前在概览页，也同步刷新统计
             if (currentTab === 'dashboard') {
                 loadDashboard();
             }
@@ -1402,7 +1402,7 @@ async function deleteLog(id) {
     }
 }
 
-// 闁瀚ㄧ€电厧鍤弽鐓庣础
+// 选择导出格式
 function selectExportFormat(format) {
     document.querySelectorAll('.export-format-card').forEach(card => {
         card.classList.remove('active');
@@ -1410,29 +1410,29 @@ function selectExportFormat(format) {
     document.querySelector(`.export-format-card[data-format="${format}"]`)?.classList.add('active');
     document.getElementById('export-format').value = format;
     
-    // 閺囧瓨鏌婇弬鍥︽閸氬秴鎮楃紓鈧?
+    // 更新文件扩展名
     const extMap = { excel: '.xlsx', csv: '.csv', json: '.json' };
     document.getElementById('filename-ext').textContent = extMap[format] || '.xlsx';
     
-    // 閺嶇厧绱￠崣妯哄閺冭埖娲块弬浼搭暕鐟欏牞绱欓弬鍥︽婢堆冪毈娴兼壆鐣绘导姘綁閿?
+    // 切换格式后同步刷新导出预览
     updateExportPreview();
 }
 
-// 閸掑洦宕茬€电厧鍤悩鑸碘偓浣虹摣闁?
+// 切换导出状态码筛选
 function toggleExportStatus(btn) {
     btn.classList.toggle('active');
     updateExportStatusFilter();
 }
 
-// 閺囧瓨鏌婄€电厧鍤悩鑸碘偓浣虹摣闁鈧?
+// 汇总导出状态码筛选值
 function updateExportStatusFilter() {
     const activeBtns = document.querySelectorAll('.status-filter-btn.active');
     const statuses = Array.from(activeBtns).map(btn => btn.dataset.status).join(',');
     document.getElementById('export-status').value = statuses;
-    updateExportPreview(); // 缁涙盯鈧褰夐崠鏍ㄦ閺囧瓨鏌婃０鍕潔
+    updateExportPreview(); // 变更后立即刷新预览
 }
 
-// 閺囧瓨鏌婄€电厧鍤０鍕潔
+// 更新导出预览
 async function updateExportPreview() {
     const startTime = document.getElementById('export-start-time').value;
     const endTime = document.getElementById('export-end-time').value;
@@ -1547,7 +1547,7 @@ async function exportLogs() {
         
         if (response.ok) {
             const contentType = response.headers.get('content-type');
-            // 婵″倹鐏夋潻鏂挎礀閻ㄥ嫭妲?JSON閿涘矁顕╅弰搴㈡Ц闁挎瑨顕ゆ穱鈩冧紖
+            // 某些失败场景会返回 JSON 错误信息，先解析再处理
             if (contentType && contentType.includes('application/json')) {
                 const result = await response.json();
                 if (result.error) {
@@ -1556,7 +1556,7 @@ async function exportLogs() {
                 }
             }
             
-            // 閼惧嘲褰?blob 楠炶埖顥呴弻銉ャ亣鐏?
+            // 再读取 blob 作为真正导出内容
             const blob = await response.blob();
             console.log('Export blob size:', blob.size, 'type:', blob.type);
             
@@ -1589,7 +1589,7 @@ async function exportLogs() {
     }
 }
 
-// 濞撳懐鈹栭幍鈧張澶嬫）韫?
+// 清空所有日志
 async function clearAllLogs() {
     const count = document.getElementById('results-count').textContent;
     if (!confirm(`确认清空所有日志吗？\n当前结果：${count}\n\n此操作不可恢复。`)) {
@@ -1611,8 +1611,8 @@ async function clearAllLogs() {
         
         if (response.ok) {
             alert('已清空所有日志');
-            queryLogs(); // 閸掗攱鏌婇崚妤勩€?
-            // 閸掗攱鏌婂鍌濐潔閺佺増宓?
+            queryLogs(); // 清空后刷新列表
+            // 如果当前在概览页，也同步刷新统计
             if (currentTab === 'dashboard') {
                 loadDashboard();
             }
@@ -1624,13 +1624,13 @@ async function clearAllLogs() {
     }
 }
 
-// 閹搭亝鏌囩€涙顑佹稉?
+// 截断过长文本
 function truncate(str, length) {
     if (!str) return '-';
     return str.length > length ? str.substring(0, length) + '...' : str;
 }
 
-// 閺屻儳婀呴弮銉ョ箶鐠囷附鍎?
+// 查看日志详情
 function viewLogDetail(log) {
     const modal = document.getElementById('log-modal');
     const detail = document.getElementById('log-detail');
@@ -1639,22 +1639,22 @@ function viewLogDetail(log) {
     modal.classList.add('active');
 }
 
-// 閸忔娊妫村鍦崶
+// 关闭详情弹窗
 function closeModal() {
     document.getElementById('log-modal').classList.remove('active');
 }
 
-// 閸掑洦宕茬拠閿嬬湴閺傝纭堕柅澶嬪
+// 切换查询方法标签
 function toggleMethod(btn) {
     btn.classList.toggle('active');
 }
 
-// 閸掑洦宕查悩鑸碘偓浣虹垳闁瀚?
+// 切换查询状态码标签
 function toggleStatus(btn) {
     btn.classList.toggle('active');
 }
 
-// 濞ｈ濮炵€涙顔岄弰鐘茬殸鐞?
+// 添加字段映射行
 function addMappingRow(index = '', field = '') {
     const list = document.getElementById('mapping-list');
     if (!list) return;
@@ -1673,14 +1673,14 @@ function addMappingRow(index = '', field = '') {
     updateMappingJSON();
 }
 
-// 閸掔娀娅庣€涙顔岄弰鐘茬殸鐞?
+// 删除字段映射行
 function removeMappingRow(btn) {
     btn.closest('.mapping-row').remove();
     updateMappingIndices();
     updateMappingJSON();
 }
 
-// 閺囧瓨鏌婄€涙顔岄弰鐘茬殸缁便垹绱?
+// 更新字段映射序号
 function updateMappingIndices() {
     const rows = document.querySelectorAll('#mapping-list .mapping-row');
     rows.forEach((row, index) => {
@@ -1688,7 +1688,7 @@ function updateMappingIndices() {
     });
 }
 
-// 閺囧瓨鏌婄€涙顔岄弰鐘茬殸JSON
+// 同步字段映射 JSON
 function updateMappingJSON() {
     const rows = document.querySelectorAll('#mapping-list .mapping-row');
     const mapping = {};
@@ -1701,7 +1701,7 @@ function updateMappingJSON() {
     if (textarea) textarea.value = JSON.stringify(mapping, null, 2);
 }
 
-// 濞ｈ濮炲〒鍛鐟欏嫬鍨?
+// 添加清洗规则
 function addCleanRule() {
     const list = document.getElementById('clean-rules-list');
     if (!list) return;
@@ -1733,7 +1733,7 @@ function addCleanRule() {
     updateCleanRulesJSON();
 }
 
-// 濞ｈ濮炴潻鍥ㄦ姢鐟欏嫬鍨?
+// 添加过滤规则
 function addFilterRule() {
     const list = document.getElementById('filter-rules-list');
     if (!list) return;
@@ -1767,14 +1767,14 @@ function addFilterRule() {
     updateFilterRulesJSON();
 }
 
-// 閸掔娀娅庣憴鍕灟鐞?
+// 删除规则行
 function removeRule(btn, type) {
     btn.closest('.rule-row').remove();
     if (type === 'clean') updateCleanRulesJSON();
     else updateFilterRulesJSON();
 }
 
-// 閺囧瓨鏌婂〒鍛鐟欏嫬鍨疛SON
+// 同步清洗规则 JSON
 function updateCleanRulesJSON() {
     const rows = document.querySelectorAll('#clean-rules-list .rule-row');
     const rules = [];
@@ -1793,7 +1793,7 @@ function updateCleanRulesJSON() {
     if (textarea) textarea.value = JSON.stringify(rules, null, 2);
 }
 
-// 閺囧瓨鏌婃潻鍥ㄦ姢鐟欏嫬鍨疛SON
+// 同步过滤规则 JSON
 function updateFilterRulesJSON() {
     const rows = document.querySelectorAll('#filter-rules-list .rule-row');
     const rules = [];
@@ -1812,7 +1812,7 @@ function updateFilterRulesJSON() {
     if (textarea) textarea.value = JSON.stringify(rules, null, 2);
 }
 
-// 閸掓繂顫愰崠鏍х摟濞堝灚妲х亸鍕灙鐞?
+// 根据配置初始化字段映射列表
 function initMappingList(mapping) {
     const list = document.getElementById('mapping-list');
     if (!list) return;
@@ -1833,7 +1833,7 @@ function initMappingList(mapping) {
     });
 }
 
-// 閸掓繂顫愰崠鏍ㄧ濞叉顫夐崚娆忓灙鐞?
+// 根据配置初始化清洗规则列表
 function initCleanRulesList(rules) {
     const list = document.getElementById('clean-rules-list');
     if (!list) return;
@@ -1869,7 +1869,7 @@ function initCleanRulesList(rules) {
     });
 }
 
-// 閸掓繂顫愰崠鏍箖濠娿倛顫夐崚娆忓灙鐞?
+// 根据配置初始化过滤规则列表
 function initFilterRulesList(rules) {
     const list = document.getElementById('filter-rules-list');
     if (!list) return;
@@ -1907,7 +1907,7 @@ function initFilterRulesList(rules) {
     });
 }
 
-// 閼惧嘲褰囬悩鑸碘偓浣虹垳妫版粏澹婄猾?
+// 根据状态码返回样式类
 function getStatusCodeClass(statusCode) {
     if (!statusCode) return '';
     const code = parseInt(statusCode);
@@ -1918,7 +1918,7 @@ function getStatusCodeClass(statusCode) {
     return '';
 }
 
-// 閺囧瓨鏌婂鏌モ偓澶岀摣闁娼禒鑸垫▔缁€?
+// 更新当前筛选条件展示
 function updateActiveFilters(filters) {
     const container = document.getElementById('active-filters');
     const list = document.getElementById('active-filters-list');
@@ -1955,7 +1955,7 @@ function updateActiveFilters(filters) {
     }
 }
 
-// 闁插秶鐤嗙粵娑⑩偓?
+// 重置查询条件
 function resetFilters() {
     applyTimePreset('filter', 'clear');
     document.querySelectorAll('#filter-method .method-tag').forEach(btn => btn.classList.remove('active'));
@@ -1965,7 +1965,7 @@ function resetFilters() {
     queryLogs();
 }
 
-// 閸掑棝銆?
+// 上一页
 function prevPage() {
     if (currentPage > 1) {
         currentPage--;
@@ -1981,12 +1981,12 @@ function nextPage() {
     }
 }
 
-// 閺囧瓨鏌婇崚鍡涖€夐幐澶愭尦閻樿埖鈧?
+// 更新分页状态
 function updatePagination() {
     const maxPage = Math.max(1, Math.ceil(currentTotal / currentLimit));
     document.getElementById('page-info').textContent = `第 ${currentPage} / ${maxPage} 页`;
     
-    // 缁備胶鏁?閸氼垳鏁ら幐澶愭尦
+    // 同步分页按钮状态
     const prevBtn = document.querySelector('.pagination button:first-child');
     const nextBtn = document.querySelector('.pagination button:last-child');
     
@@ -2000,13 +2000,13 @@ function updatePagination() {
     }
 }
 
-// 閸旂姾娴囬柊宥囩枂
+// 加载系统配置
 async function loadConfig() {
     try {
         const response = await fetch('/api/config');
         const config = await response.json();
         
-        // Processor 闁板秶鐤?- 娴ｈ法鏁ゅ鎴濇健
+        // Processor 配置
         const workers = config.processor?.worker_count || 10;
         const batchSize = config.processor?.batch_size || 100;
         const timeout = config.processor?.batch_timeout || 1000;
@@ -2034,15 +2034,15 @@ async function loadConfig() {
         if (overflowDrainBatchInput) overflowDrainBatchInput.value = overflowDrainBatch;
         if (overflowDrainIntervalInput) overflowDrainIntervalInput.value = overflowDrainInterval;
         
-        // 閺囧瓨鏌婂鎴濇健閺勫墽銇氶崐?
+        // 更新性能参数展示值
         updateSliderValue('processor-workers', workers);
         updateSliderValue('processor-batch-size', batchSize);
         updateSliderValue('processor-timeout', timeout);
         
-        // 濡偓濞村鑻熸惔鏃傛暏閸栧綊鍘ら惃鍕暕鐠?
+        // 根据当前参数自动高亮匹配的预设
         detectAndApplyPreset(workers, batchSize, timeout);
         
-        // Receiver 闁板秶鐤?
+        // Receiver 配置
         const tcpEnabledInput = document.getElementById('receiver-tcp');
         const tcpPortInput = document.getElementById('receiver-tcp-port');
         const udpEnabledInput = document.getElementById('receiver-udp');
@@ -2060,7 +2060,7 @@ async function loadConfig() {
         if (httpTokenInput) httpTokenInput.value = config.receiver?.http_auth_token || '';
         if (httpIpsInput) httpIpsInput.value = (config.receiver?.http_allowed_ips || []).join(', ');
         
-        // Storage 闁板秶鐤?
+        // Storage 配置
         const dbPath = config.storage?.db_path || './data/logs.db';
         const dbPathInput = document.getElementById('storage-db-path');
         if (dbPathInput) dbPathInput.value = dbPath;
@@ -2069,7 +2069,7 @@ async function loadConfig() {
             pathText.textContent = dbPath;
         }
         
-        // 閺囧瓨鏌婃穱婵堟殌閺冨爼妫块獮璺烘倱濮濄儲瀵滈柦顔惧Ц閹?
+        // 初始化保留时间快捷按钮
         const retention = config.storage?.retention_hours || 720;
         const retentionInput = document.getElementById('storage-retention');
         if (retentionInput) retentionInput.value = retention;
@@ -2084,9 +2084,9 @@ async function loadConfig() {
     }
 }
 
-// 閺嶈宓佽ぐ鎾冲閸婂吋顥呭ù瀣嫙鎼存梻鏁ゆ０鍕啎
+// 根据当前性能参数自动识别预设
 function detectAndApplyPreset(workers, batchSize, timeout) {
-    // 閺屻儲澹橀崠褰掑帳閻ㄥ嫰顣╃拋?
+    // 查找匹配的预设项
     let matchedPreset = null;
     for (const [name, preset] of Object.entries(PERFORMANCE_PRESETS)) {
         if (preset.workers === workers && preset.batchSize === batchSize && preset.timeout === timeout) {
@@ -2095,15 +2095,15 @@ function detectAndApplyPreset(workers, batchSize, timeout) {
         }
     }
     
-    // 閺囧瓨鏌婃０鍕啎閸楋紕澧栭悩鑸碘偓?
+    // 更新预设卡片高亮
     document.querySelectorAll('.preset-card').forEach(card => {
         card.classList.toggle('active', card.dataset.preset === matchedPreset);
     });
 }
 
-// 娣囨繂鐡ㄩ柊宥囩枂
+// 保存配置
 async function saveConfig() {
-    // 閸忓牓鐛欑拠浣瑰閺堝鏆熺€涙绶崗?
+    // 保存前先校验所有数字输入
     if (!validateNumberInputs()) {
         alert('请检查输入，有些数值超出了允许范围');
         return;
@@ -2137,31 +2137,31 @@ async function saveConfig() {
     };
     
     try {
-        console.log('[Config] 濮濓絽婀穱婵嗙摠闁板秶鐤?', config);
+        console.log('[Config] 准备保存配置:', config);
         const response = await fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });
         
-        console.log('[Config] 閸濆秴绨查悩鑸碘偓?', response.status);
+        console.log('[Config] 保存接口响应状态:', response.status);
         
         if (response.ok) {
             const result = await response.json();
-            console.log('[Config] 娣囨繂鐡ㄩ幋鎰:', result);
+            console.log('[Config] 配置保存成功:', result);
             alert('配置保存成功');
         } else {
             const result = await response.json().catch(() => ({ error: '未知错误' }));
-            console.error('[Config] 娣囨繂鐡ㄦ径杈Е:', result);
+            console.error('[Config] 配置保存失败:', result);
             alert('保存失败: ' + (result.error || '服务器错误'));
         }
     } catch (error) {
-        console.error('[Config] 鐠囬攱鐪板鍌氱埗:', error);
+        console.error('[Config] 保存配置请求异常:', error);
         alert('保存失败: ' + error.message);
     }
 }
 
-// 閻愮懓鍤鍦崶婢舵牠鍎撮崗鎶芥４
+// 点击弹窗外部区域时关闭详情
 window.onclick = function(event) {
     const modal = document.getElementById('log-modal');
     if (event.target === modal) {
@@ -2169,7 +2169,7 @@ window.onclick = function(event) {
     }
 };
 
-// 鐎规碍妞傞崚閿嬫煀娴狀亣銆冮弶?
+// 定时自动刷新概览
 setInterval(() => {
     if (currentTab === 'dashboard') {
         console.log('[App] Auto-refreshing dashboard...');
@@ -2177,7 +2177,7 @@ setInterval(() => {
     }
 }, 30000);
 
-// 妞ょ敻娼伴崣顖濐潌閹冨綁閸栨牗妞傞崚閿嬫煀
+// 页面重新可见时刷新概览
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && currentTab === 'dashboard') {
         console.log('[App] Page visible, refreshing dashboard...');
@@ -2185,9 +2185,9 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-// ========== 閺傛澘顤冮柊宥囩枂闂堛垺婢橀崝鐔诲厴 ==========
+// ========== 性能预设与压测工具 ==========
 
-// 閹嗗厴妫板嫯顔曢柊宥囩枂
+// 性能预设
 const PERFORMANCE_PRESETS = {
     dev: { workers: 2, batchSize: 50, timeout: 500 },
     standard: { workers: 10, batchSize: 100, timeout: 1000 },
@@ -2195,28 +2195,28 @@ const PERFORMANCE_PRESETS = {
     ultra: { workers: 50, batchSize: 500, timeout: 5000 }
 };
 
-// 鎼存梻鏁ら幀褑鍏樻０鍕啎
+// 应用性能预设
 function applyPreset(presetName) {
     const preset = PERFORMANCE_PRESETS[presetName];
     if (!preset) return;
     
-    // 閺囧瓨鏌婂鎴濇健閸?
+    // 写入预设参数
     document.getElementById('processor-workers').value = preset.workers;
     document.getElementById('processor-batch-size').value = preset.batchSize;
     document.getElementById('processor-timeout').value = preset.timeout;
     
-    // 閺囧瓨鏌婇弰鍓с仛閸?
+    // 同步数值徽标
     updateSliderValue('processor-workers', preset.workers);
     updateSliderValue('processor-batch-size', preset.batchSize);
     updateSliderValue('processor-timeout', preset.timeout);
     
-    // 閺囧瓨鏌婃０鍕啎閸楋紕澧栭悩鑸碘偓?
+    // 更新预设卡片高亮
     document.querySelectorAll('.preset-card').forEach(card => {
         card.classList.toggle('active', card.dataset.preset === presetName);
     });
 }
 
-// 閺囧瓨鏌婂鎴濇健閺勫墽銇氶崐?
+// 更新滑块/数字展示值
 function updateSliderValue(id, value) {
     const badge = document.getElementById(id + '-value');
     if (badge) {
@@ -2224,7 +2224,7 @@ function updateSliderValue(id, value) {
     }
 }
 
-// 娑撯偓闁款喖甯囧ù瀣嫙閺勫墽銇氶幎銉ユ啞
+// 运行快速压测
 async function runQuickBenchmark() {
     const btn = document.getElementById('benchmark-run-btn');
     const reportEl = document.getElementById('benchmark-report');
@@ -2325,7 +2325,7 @@ async function compactDB() {
     }
 }
 
-// 閸旂姾娴囩€涙ê鍋嶆穱鈩冧紖
+// 加载存储信息
 async function loadStorageInfo() {
     try {
         const response = await fetch('/api/storage/info');
@@ -2340,7 +2340,7 @@ async function loadStorageInfo() {
     }
 }
 
-// 鐎涙濡弽鐓庣础閸?
+// 格式化字节大小
 function formatBytes(bytes) {
     if (bytes === 0) return '0 B';
     const k = 1024;
