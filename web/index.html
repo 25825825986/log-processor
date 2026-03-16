@@ -9,11 +9,10 @@
 </head>
 <body>
     <div class="container">
-        <!-- 头部 -->
         <header class="header">
             <h1 class="header-title">
                 <i class="fas fa-rocket"></i>
-                轻量级高并发日志数据处理系统
+                轻量化高并发日志数据处理系统
             </h1>
             <nav class="nav">
                 <button class="nav-btn active" data-tab="dashboard">
@@ -40,9 +39,7 @@
         </header>
 
         <main class="main">
-            <!-- 概览面板 -->
             <section id="dashboard" class="tab-content active">
-                <!-- 统计卡片 -->
                 <div class="stats-grid">
                     <div class="stat-card primary">
                         <i class="stat-icon fas fa-database"></i>
@@ -78,16 +75,16 @@
                     </div>
                 </div>
 
-                <!-- 图表区域 -->
+                <div id="system-alerts"></div>
+
                 <div class="chart-grid">
-                    <!-- 状态码分布 - 卡片式设计 -->
                     <div class="chart-card">
                         <div class="chart-header">
                             <h3 class="chart-title">
                                 <i class="fas fa-shield-alt"></i>
                                 状态码分布
                             </h3>
-                            <span class="chart-subtitle" id="status-total">共 0 条</span>
+                            <span class="chart-subtitle" id="status-total">总计 0 条</span>
                         </div>
                         <div id="status-chart" class="chart-body">
                             <div class="empty-state">
@@ -97,15 +94,14 @@
                             </div>
                         </div>
                     </div>
-                    
-                    <!-- 请求方法分布 - 环形图设计 -->
+
                     <div class="chart-card">
                         <div class="chart-header">
                             <h3 class="chart-title">
                                 <i class="fas fa-code-branch"></i>
                                 请求方法分布
                             </h3>
-                            <span class="chart-subtitle" id="method-total">共 0 条</span>
+                            <span class="chart-subtitle" id="method-total">总计 0 条</span>
                         </div>
                         <div id="method-chart" class="chart-body">
                             <div class="empty-state">
@@ -117,13 +113,26 @@
                     </div>
                 </div>
 
-                <!-- 快捷操作 -->
+                <div class="panel" style="display:none;">
+                    <div class="panel-header">
+                        <h3 class="panel-title">
+                            <i class="fas fa-chart-line"></i>
+                            趋势图
+                        </h3>
+                    </div>
+                    <div id="trend-chart" class="chart-body"></div>
+                </div>
+
                 <div class="panel">
                     <div class="panel-header">
                         <h3 class="panel-title">
                             <i class="fas fa-bolt"></i>
                             快捷操作
                         </h3>
+                        <button class="btn btn-secondary" onclick="refreshDashboard()">
+                            <i class="fas fa-sync-alt"></i>
+                            刷新概览
+                        </button>
                     </div>
                     <div class="action-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px;">
                         <button class="btn btn-secondary" onclick="switchTab('query')">
@@ -146,9 +155,7 @@
                 </div>
             </section>
 
-            <!-- 查询面板 -->
             <section id="query" class="tab-content">
-                <!-- 筛选条件 -->
                 <div class="panel">
                     <div class="panel-header">
                         <h3 class="panel-title">
@@ -180,61 +187,25 @@
                         <div class="form-group">
                             <label class="form-label">请求方法</label>
                             <div class="method-selector" id="filter-method">
-                                <button type="button" class="method-tag" data-value="GET" onclick="toggleMethod(this)">
-                                    <span class="method-color" style="background: #4472C4;"></span>
-                                    <span class="method-name">GET</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
-                                <button type="button" class="method-tag" data-value="POST" onclick="toggleMethod(this)">
-                                    <span class="method-color" style="background: #52C41A;"></span>
-                                    <span class="method-name">POST</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
-                                <button type="button" class="method-tag" data-value="PUT" onclick="toggleMethod(this)">
-                                    <span class="method-color" style="background: #FAAD14;"></span>
-                                    <span class="method-name">PUT</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
-                                <button type="button" class="method-tag" data-value="DELETE" onclick="toggleMethod(this)">
-                                    <span class="method-color" style="background: #F5222D;"></span>
-                                    <span class="method-name">DELETE</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
-                                <button type="button" class="method-tag" data-value="PATCH" onclick="toggleMethod(this)">
-                                    <span class="method-color" style="background: #722ED1;"></span>
-                                    <span class="method-name">PATCH</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
+                                <button type="button" class="method-tag" data-value="GET" onclick="toggleMethod(this)"><span class="method-color" style="background: #4472C4;"></span><span class="method-name">GET</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="method-tag" data-value="POST" onclick="toggleMethod(this)"><span class="method-color" style="background: #52C41A;"></span><span class="method-name">POST</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="method-tag" data-value="PUT" onclick="toggleMethod(this)"><span class="method-color" style="background: #FAAD14;"></span><span class="method-name">PUT</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="method-tag" data-value="DELETE" onclick="toggleMethod(this)"><span class="method-color" style="background: #F5222D;"></span><span class="method-name">DELETE</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="method-tag" data-value="PATCH" onclick="toggleMethod(this)"><span class="method-color" style="background: #722ED1;"></span><span class="method-name">PATCH</span><i class="fas fa-check check-icon"></i></button>
                             </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label">状态码</label>
                             <div class="status-selector" id="filter-status">
-                                <button type="button" class="status-tag success" data-value="200" onclick="toggleStatus(this)">
-                                    <span class="status-code">200</span>
-                                    <span class="status-name">成功</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
-                                <button type="button" class="status-tag redirect" data-value="301,302" onclick="toggleStatus(this)">
-                                    <span class="status-code">30x</span>
-                                    <span class="status-name">重定向</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
-                                <button type="button" class="status-tag client-error" data-value="400,401,403,404" onclick="toggleStatus(this)">
-                                    <span class="status-code">40x</span>
-                                    <span class="status-name">客户端错误</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
-                                <button type="button" class="status-tag server-error" data-value="500,502,503" onclick="toggleStatus(this)">
-                                    <span class="status-code">50x</span>
-                                    <span class="status-name">服务端错误</span>
-                                    <i class="fas fa-check check-icon"></i>
-                                </button>
+                                <button type="button" class="status-tag success" data-value="200" onclick="toggleStatus(this)"><span class="status-code">200</span><span class="status-name">成功</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="status-tag redirect" data-value="301,302" onclick="toggleStatus(this)"><span class="status-code">30x</span><span class="status-name">重定向</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="status-tag client-error" data-value="400,401,403,404" onclick="toggleStatus(this)"><span class="status-code">40x</span><span class="status-name">客户端错误</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="status-tag server-error" data-value="500,502,503" onclick="toggleStatus(this)"><span class="status-code">50x</span><span class="status-name">服务端错误</span><i class="fas fa-check check-icon"></i></button>
                             </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label">关键词</label>
-                            <input type="text" id="filter-keyword" class="form-input" placeholder="搜索路径、IP等">
+                            <input type="text" id="filter-keyword" class="form-input" placeholder="搜索路径、IP、请求方法等">
                         </div>
                     </div>
                     <div class="time-preset-row">
@@ -245,341 +216,50 @@
                         <button type="button" class="time-preset-btn" data-target="filter" data-range="clear">清空</button>
                     </div>
                     <div class="filter-divider"></div>
-                    
-                    <!-- 已选筛选条件 -->
                     <div class="active-filters" id="active-filters" style="display: none;">
-                        <span class="active-filters-label">当前筛选:</span>
+                        <span class="active-filters-label">当前筛选</span>
                         <div class="active-filters-list" id="active-filters-list"></div>
-                        <button class="btn-clear-filters" onclick="resetFilters()">
-                            <i class="fas fa-times"></i> 清除全部
-                        </button>
+                        <button class="btn-clear-filters" onclick="resetFilters()"><i class="fas fa-times"></i> 清除全部</button>
                     </div>
-                    
                     <div class="filter-actions">
                         <div class="filter-actions-left">
-                            <button class="btn btn-primary" onclick="queryLogs()">
-                                <i class="fas fa-search"></i>
-                                查询
-                            </button>
-                            <button class="btn btn-secondary" onclick="resetFilters()">
-                                <i class="fas fa-undo"></i>
-                                重置筛选
-                            </button>
+                            <button class="btn btn-primary" onclick="queryLogs()"><i class="fas fa-search"></i> 查询</button>
+                            <button class="btn btn-secondary" onclick="resetFilters()"><i class="fas fa-undo"></i> 重置筛选</button>
                         </div>
-                        <button class="btn btn-danger-outline" onclick="clearAllLogs()">
-                            <i class="fas fa-trash-alt"></i>
-                            清空全部日志
-                        </button>
+                        <button class="btn btn-danger-outline" onclick="clearAllLogs()"><i class="fas fa-trash-alt"></i> 清空全部日志</button>
                     </div>
                 </div>
 
-                <!-- 查询结果 -->
                 <div class="panel">
                     <div class="panel-header">
-                        <h3 class="panel-title">
-                            <i class="fas fa-list"></i>
-                            查询结果
-                        </h3>
+                        <h3 class="panel-title"><i class="fas fa-list"></i> 查询结果</h3>
                         <span class="results-count" id="results-count">共 0 条记录</span>
                     </div>
                     <div class="table-container" style="margin-bottom: 20px;">
                         <table class="table" id="logs-table">
                             <thead>
-                                <tr>
-                                    <th>时间</th>
-                                    <th>方法</th>
-                                    <th>路径</th>
-                                    <th>状态码</th>
-                                    <th>响应时间</th>
-                                    <th>客户端IP</th>
-                                    <th>操作</th>
-                                </tr>
+                                <tr id="logs-table-head-row"></tr>
                             </thead>
-                            <tbody>
-                                <!-- 动态填充 -->
-                            </tbody>
+                            <tbody></tbody>
                         </table>
                     </div>
                     <div class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 16px;">
                         <button class="btn btn-secondary" onclick="prevPage()">上一页</button>
-                        <span id="page-info" style="color: var(--text-secondary);">第 1 页</span>
+                        <span id="page-info" style="color: var(--text-secondary);">第 1 / 1 页</span>
                         <button class="btn btn-secondary" onclick="nextPage()">下一页</button>
                     </div>
                 </div>
             </section>
 
-            <!-- 配置面板 -->
-            <section id="config" class="tab-content">
-                <!-- 配置标签页 -->
-                <div class="config-tabs">
-                    <button class="config-tab active" data-config="processor">
-                        <div class="tab-header">
-                            <div class="tab-icon"><i class="fas fa-microchip"></i></div>
-                            <div class="tab-title">处理配置</div>
-                        </div>
-                        <div class="tab-desc">性能与并发设置</div>
-                    </button>
-                    <button class="config-tab" data-config="receiver">
-                        <div class="tab-header">
-                            <div class="tab-icon"><i class="fas fa-network-wired"></i></div>
-                            <div class="tab-title">接收器配置</div>
-                        </div>
-                        <div class="tab-desc">端口与协议设置</div>
-                    </button>
-                    <button class="config-tab" data-config="storage">
-                        <div class="tab-header">
-                            <div class="tab-icon"><i class="fas fa-database"></i></div>
-                            <div class="tab-title">存储配置</div>
-                        </div>
-                        <div class="tab-desc">数据保留策略</div>
-                    </button>
-                </div>
+            <section id="config" class="tab-content"></section>
 
-                <!-- 处理配置 -->
-                <div id="config-processor" class="config-panel active">
-                    <!-- 性能预设 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-rocket"></i> 性能模式</div>
-                        <div class="preset-cards">
-                            <div class="preset-card" data-preset="dev" onclick="applyPreset('dev')">
-                                <div class="preset-icon"><i class="fas fa-bug"></i></div>
-                                <div class="preset-info">
-                                    <div class="preset-name">开发模式</div>
-                                    <div class="preset-desc">2 Workers, 小批次, 快响应</div>
-                                </div>
-                            </div>
-                            <div class="preset-card active" data-preset="standard" onclick="applyPreset('standard')">
-                                <div class="preset-icon"><i class="fas fa-balance-scale"></i></div>
-                                <div class="preset-info">
-                                    <div class="preset-name">标准模式</div>
-                                    <div class="preset-desc">10 Workers, 平衡配置</div>
-                                </div>
-                            </div>
-                            <div class="preset-card" data-preset="high" onclick="applyPreset('high')">
-                                <div class="preset-icon"><i class="fas fa-tachometer-alt"></i></div>
-                                <div class="preset-info">
-                                    <div class="preset-name">高性能</div>
-                                    <div class="preset-desc">20 Workers, 大批次</div>
-                                </div>
-                            </div>
-                            <div class="preset-card" data-preset="ultra" onclick="applyPreset('ultra')">
-                                <div class="preset-icon"><i class="fas fa-bolt"></i></div>
-                                <div class="preset-info">
-                                    <div class="preset-name">超高性能</div>
-                                    <div class="preset-desc">50 Workers, 极限吞吐</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 详细配置 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-sliders-h"></i> 详细配置</div>
-                        <div class="compact-configs">
-                            <div class="compact-item">
-                                <label>工作协程</label>
-                                <input type="range" id="processor-workers" min="1" max="100" value="10" oninput="updateSliderValue('processor-workers', this.value)">
-                                <span class="value-badge" id="processor-workers-value">10</span>
-                            </div>
-                            <div class="compact-item">
-                                <label>批处理大小</label>
-                                <input type="range" id="processor-batch-size" min="10" max="1000" step="10" value="100" oninput="updateSliderValue('processor-batch-size', this.value)">
-                                <span class="value-badge" id="processor-batch-size-value">100</span>
-                            </div>
-                            <div class="compact-item">
-                                <label>批处理超时(ms)</label>
-                                <input type="range" id="processor-timeout" min="100" max="5000" step="100" value="1000" oninput="updateSliderValue('processor-timeout', this.value)">
-                                <span class="value-badge" id="processor-timeout-value">1000</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 接收器配置 -->
-                <div id="config-receiver" class="config-panel" style="display: none;">
-                    <!-- 接收器开关 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-power-off"></i> 接收器开关</div>
-                        <div class="receiver-switches">
-                            <div class="switch-item">
-                                <div class="switch-info">
-                                    <i class="fas fa-network-wired"></i>
-                                    <div>
-                                        <div class="switch-name">TCP 接收器</div>
-                                        <div class="switch-desc">可靠传输，适合重要日志</div>
-                                    </div>
-                                </div>
-                                <label class="switch">
-                                    <input type="checkbox" id="receiver-tcp" checked>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                            <div class="switch-item">
-                                <div class="switch-info">
-                                    <i class="fas fa-broadcast-tower"></i>
-                                    <div>
-                                        <div class="switch-name">UDP 接收器</div>
-                                        <div class="switch-desc">高速传输，允许少量丢失</div>
-                                    </div>
-                                </div>
-                                <label class="switch">
-                                    <input type="checkbox" id="receiver-udp" checked>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                            <div class="switch-item">
-                                <div class="switch-info">
-                                    <i class="fas fa-globe"></i>
-                                    <div>
-                                        <div class="switch-name">HTTP 接收器</div>
-                                        <div class="switch-desc">RESTful接口，支持批量提交</div>
-                                    </div>
-                                </div>
-                                <label class="switch">
-                                    <input type="checkbox" id="receiver-http" checked>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 端口配置 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-plug"></i> 端口配置</div>
-                        <div class="port-configs">
-                            <div class="port-item">
-                                <label>TCP 端口</label>
-                                <input type="number" id="receiver-tcp-port" value="9000" min="1" max="65535" class="form-input">
-                            </div>
-                            <div class="port-item">
-                                <label>UDP 端口</label>
-                                <input type="number" id="receiver-udp-port" value="9001" min="1" max="65535" class="form-input">
-                            </div>
-                            <div class="port-item">
-                                <label>HTTP 端口</label>
-                                <input type="number" id="receiver-http-port" value="9002" min="1" max="65535" class="form-input">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 安全配置 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-shield-alt"></i> 安全配置</div>
-                        <div class="security-configs">
-                            <div class="form-group">
-                                <label>HTTP Token 认证 (留空不启用)</label>
-                                <div class="token-input">
-                                    <input type="text" id="receiver-http-token" class="form-input" placeholder="输入认证 Token" autocomplete="off">
-                                    <button type="button" class="btn-generate" onclick="generateToken()">
-                                        <i class="fas fa-key"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label>IP 白名单 (逗号分隔，留空允许所有)</label>
-                                <input type="text" id="receiver-http-ips" class="form-input" placeholder="127.0.0.1, 192.168.1.0/24">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 存储配置 -->
-                <div id="config-storage" class="config-panel" style="display: none;">
-                    <!-- 存储信息 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-info-circle"></i> 存储信息</div>
-                        <div class="storage-info">
-                            <div class="info-item">
-                                <i class="fas fa-database"></i>
-                                <div>
-                                    <div class="info-label">引擎</div>
-                                    <div class="info-value">SQLite</div>
-                                </div>
-                            </div>
-                            <div class="info-item">
-                                <i class="fas fa-folder"></i>
-                                <div>
-                                    <div class="info-label">路径</div>
-                                    <div class="info-value" id="storage-path-text">./data/logs.db</div>
-                                </div>
-                            </div>
-                            <div class="info-item">
-                                <i class="fas fa-hdd"></i>
-                                <div>
-                                    <div class="info-label">大小</div>
-                                    <div class="info-value" id="storage-size">--</div>
-                                </div>
-                            </div>
-                        </div>
-                        <input type="hidden" id="storage-db-path" value="./data/logs.db">
-                    </div>
-
-                    <!-- 保留策略 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-clock"></i> 保留策略</div>
-                        <div class="retention-options compact">
-                            <button type="button" class="retention-btn" data-hours="24" onclick="setRetention(24)">
-                                <div class="retention-label">1天</div>
-                            </button>
-                            <button type="button" class="retention-btn" data-hours="168" onclick="setRetention(168)">
-                                <div class="retention-label">1周</div>
-                            </button>
-                            <button type="button" class="retention-btn active" data-hours="720" onclick="setRetention(720)">
-                                <div class="retention-label">30天</div>
-                            </button>
-                            <button type="button" class="retention-btn" data-hours="2160" onclick="setRetention(2160)">
-                                <div class="retention-label">3个月</div>
-                            </button>
-                            <button type="button" class="retention-btn" data-hours="8760" onclick="setRetention(8760)">
-                                <div class="retention-label">1年</div>
-                            </button>
-                        </div>
-                        <div class="retention-custom">
-                            <input type="number" id="storage-retention" value="720" min="1" max="8760" class="form-input">
-                            <span>小时</span>
-                        </div>
-                    </div>
-
-                    <!-- 数据管理 -->
-                    <div class="config-section">
-                        <div class="section-title"><i class="fas fa-tools"></i> 数据管理</div>
-                        <div class="data-actions">
-                            <button type="button" class="btn btn-secondary" onclick="copyPath()">
-                                <i class="fas fa-copy"></i> 复制路径
-                            </button>
-                            <button type="button" class="btn btn-warning" onclick="compactDB()">
-                                <i class="fas fa-compress"></i> 压缩数据库
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 操作按钮 -->
-                <div class="config-actions">
-                    <div class="config-actions-left">
-                        <button class="btn btn-primary btn-lg" onclick="saveConfig()">
-                            <i class="fas fa-save"></i>
-                            <span>保存配置</span>
-                        </button>
-                        <button class="btn btn-secondary" onclick="loadConfig()">
-                            <i class="fas fa-rotate-right"></i>
-                            <span>重置</span>
-                        </button>
-                    </div>
-
-                </div>
-            </section>
-
-            <!-- 导入面板 -->
             <section id="import" class="tab-content">
                 <div class="import-layout">
                     <div class="import-main">
                         <div class="import-section import-uploader-card">
                             <div class="section-title"><i class="fas fa-cloud-upload-alt"></i> 文件导入</div>
                             <div class="upload-zone" id="upload-zone">
-                                <div class="upload-icon">
-                                    <i class="fas fa-cloud-arrow-up"></i>
-                                </div>
+                                <div class="upload-icon"><i class="fas fa-cloud-arrow-up"></i></div>
                                 <div class="upload-text">
                                     <div class="upload-title">拖拽文件到这里</div>
                                     <div class="upload-subtitle">或点击选择多个日志文件批量导入</div>
@@ -610,16 +290,14 @@
                         </div>
 
                         <div class="import-section" id="upload-progress-section" style="display: none;">
-                            <div class="section-title"><i class="fas fa-spinner fa-spin"></i> 上传进度</div>
+                            <div class="section-title"><i class="fas fa-spinner fa-spin"></i> 导入进度</div>
                             <div class="progress-card">
                                 <div class="progress-info">
                                     <span class="progress-filename" id="progress-filename">filename.log</span>
                                     <span class="progress-percent" id="progress-percent">0%</span>
                                 </div>
-                                <div class="progress-bar-bg">
-                                    <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
-                                </div>
-                                <div class="progress-stats">
+                                <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div></div>
+                                <div class="progress-meta">
                                     <span id="progress-size">0 MB / 0 MB</span>
                                     <span id="progress-speed">0 MB/s</span>
                                 </div>
@@ -627,205 +305,138 @@
                         </div>
 
                         <div class="import-section" id="upload-results-section" style="display: none;">
-                            <div class="section-title"><i class="fas fa-check-circle"></i> 导入结果</div>
-                            <div class="results-list" id="upload-results"></div>
+                            <div class="section-title"><i class="fas fa-list-check"></i> 导入结果</div>
+                            <div id="upload-results"></div>
                         </div>
                     </div>
 
-                    <div class="import-side">
+                    <aside class="import-side">
                         <div class="import-side-card">
-                            <div class="section-title"><i class="fas fa-list-check"></i> 导入建议</div>
+                            <div class="section-title"><i class="fas fa-circle-info"></i> 导入说明</div>
                             <ul class="import-checklist">
-                                <li>建议按批次导入，每批控制在 10 万行以内。</li>
-                                <li>大文件优先使用 <code>.log/.txt</code>，减少格式转换开销。</li>
-                                <li>导入完成后可在“查询”页按时间范围校验数据。</li>
-                                <li>若出现告警，可在“配置”页调整并发与批处理参数。</li>
+                                <li>支持导入 `.log`、`.txt`、`.csv`、`.json` 文件。</li>
+                                <li>支持识别 Nginx、Apache、JSON、CSV/TSV、Syslog 等常见日志格式。</li>
+                                <li>导入过程中会提示系统识别到的日志格式，便于确认解析是否正确。</li>
                             </ul>
                         </div>
-                        <div class="tip-card">
-                            <i class="fas fa-lightbulb"></i>
-                            <div>
-                                <div class="tip-title">导入说明</div>
-                                <div class="tip-content">
-                                    系统会自动识别文件中的日志格式并解析。若格式不兼容，会在结果中给出明确提示。
-                                </div>
-                            </div>
+
+                        <div class="import-side-card">
+                            <div class="section-title"><i class="fas fa-gauge-high"></i> 当前限制</div>
+                            <ul class="import-checklist">
+                                <li>单文件最多导入 <strong id="import-max-lines-display">100,000 条</strong>。</li>
+                                <li>当前多文件并行导入上限为 <strong id="import-concurrency-display">1 个文件</strong>。</li>
+                                <li>当前解析模式：<strong id="import-parser-format-display">自动识别</strong>。</li>
+                            </ul>
                         </div>
-                    </div>
+
+                        <div class="import-side-card">
+                            <div class="section-title"><i class="fas fa-lightbulb"></i> 使用建议</div>
+                            <ul class="import-checklist">
+                                <li>建议优先导入结构稳定的样例日志，便于展示查询、统计和导出效果。</li>
+                                <li>如果识别出的格式不符合预期，可先到配置页调整解析格式后再重新导入。</li>
+                                <li>毕业设计演示场景推荐使用 1 万到 10 万条日志，兼顾效果与稳定性。</li>
+                            </ul>
+                        </div>
+                    </aside>
                 </div>
             </section>
 
-            <!-- 导出面板 -->
             <section id="export" class="tab-content">
-                <div class="export-layout">
-                    <div class="export-main">
-                        <div class="export-section">
-                            <div class="section-title"><i class="fas fa-file-export"></i> 导出格式</div>
-                            <div class="export-format-cards">
-                                <div class="export-format-card active" data-format="excel" onclick="selectExportFormat('excel')">
-                                    <div class="format-icon excel">
-                                        <i class="fas fa-file-excel"></i>
-                                    </div>
-                                    <div class="format-info">
-                                        <div class="format-name">Excel</div>
-                                        <div class="format-ext">.xlsx</div>
-                                    </div>
-                                    <div class="format-check"><i class="fas fa-check"></i></div>
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3 class="panel-title"><i class="fas fa-file-export"></i> 导出设置</h3>
+                    </div>
+                    <div class="filter-grid">
+                        <div class="form-group">
+                            <label class="form-label">开始时间</label>
+                            <div class="time-selector">
+                                <div class="time-combo">
+                                    <input type="date" id="export-start-date" class="form-input">
+                                    <input type="time" id="export-start-clock" class="form-input" step="60">
                                 </div>
-                                <div class="export-format-card" data-format="csv" onclick="selectExportFormat('csv')">
-                                    <div class="format-icon csv">
-                                        <i class="fas fa-file-csv"></i>
-                                    </div>
-                                    <div class="format-info">
-                                        <div class="format-name">CSV</div>
-                                        <div class="format-ext">.csv</div>
-                                    </div>
-                                    <div class="format-check"><i class="fas fa-check"></i></div>
-                                </div>
-                                <div class="export-format-card" data-format="json" onclick="selectExportFormat('json')">
-                                    <div class="format-icon json">
-                                        <i class="fas fa-file-code"></i>
-                                    </div>
-                                    <div class="format-info">
-                                        <div class="format-name">JSON</div>
-                                        <div class="format-ext">.json</div>
-                                    </div>
-                                    <div class="format-check"><i class="fas fa-check"></i></div>
-                                </div>
+                                <input type="hidden" id="export-start-time">
                             </div>
-                            <input type="hidden" id="export-format" value="excel">
                         </div>
-
-                        <div class="export-section">
-                            <div class="section-title"><i class="fas fa-cog"></i> 导出设置</div>
-                            <div class="export-settings">
-                                <div class="setting-card">
-                                    <div class="setting-label">
-                                        <i class="fas fa-file-signature"></i>
-                                        文件名
-                                    </div>
-                                    <div class="filename-input">
-                                        <input type="text" id="export-filename" class="form-input" value="logs_export" placeholder="输入导出文件名">
-                                        <span class="filename-ext" id="filename-ext">.xlsx</span>
-                                    </div>
+                        <div class="form-group">
+                            <label class="form-label">结束时间</label>
+                            <div class="time-selector">
+                                <div class="time-combo">
+                                    <input type="date" id="export-end-date" class="form-input">
+                                    <input type="time" id="export-end-clock" class="form-input" step="60">
                                 </div>
-
-                                <div class="setting-card">
-                                    <div class="setting-label">
-                                        <i class="fas fa-calendar-alt"></i>
-                                        时间范围
-                                    </div>
-                                    <div class="time-preset-row">
-                                        <button type="button" class="time-preset-btn" data-target="export" data-range="1h">最近1小时</button>
-                                        <button type="button" class="time-preset-btn" data-target="export" data-range="24h">最近24小时</button>
-                                        <button type="button" class="time-preset-btn" data-target="export" data-range="7d">最近7天</button>
-                                        <button type="button" class="time-preset-btn" data-target="export" data-range="today">今天</button>
-                                        <button type="button" class="time-preset-btn" data-target="export" data-range="clear">清空</button>
-                                    </div>
-                                    <div class="datetime-range">
-                                        <div class="datetime-input">
-                                            <label>开始时间</label>
-                                            <div class="time-selector">
-                                                <div class="time-combo">
-                                                    <input type="date" id="export-start-date" class="form-input">
-                                                    <input type="time" id="export-start-clock" class="form-input" step="60">
-                                                </div>
-                                                <input type="hidden" id="export-start-time">
-                                            </div>
-                                        </div>
-                                        <div class="datetime-separator">
-                                            <i class="fas fa-arrow-right"></i>
-                                        </div>
-                                        <div class="datetime-input">
-                                            <label>结束时间</label>
-                                            <div class="time-selector">
-                                                <div class="time-combo">
-                                                    <input type="date" id="export-end-date" class="form-input">
-                                                    <input type="time" id="export-end-clock" class="form-input" step="60">
-                                                </div>
-                                                <input type="hidden" id="export-end-time">
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="setting-card">
-                                    <div class="setting-label">
-                                        <i class="fas fa-filter"></i>
-                                        状态码筛选
-                                    </div>
-                                    <div class="export-status-filter">
-                                        <button type="button" class="status-filter-btn" data-status="200" onclick="toggleExportStatus(this)">
-                                            <span class="status-dot success"></span> 200
-                                        </button>
-                                        <button type="button" class="status-filter-btn" data-status="301,302" onclick="toggleExportStatus(this)">
-                                            <span class="status-dot redirect"></span> 30x
-                                        </button>
-                                        <button type="button" class="status-filter-btn" data-status="404" onclick="toggleExportStatus(this)">
-                                            <span class="status-dot client-error"></span> 404
-                                        </button>
-                                        <button type="button" class="status-filter-btn" data-status="500" onclick="toggleExportStatus(this)">
-                                            <span class="status-dot server-error"></span> 500
-                                        </button>
-                                    </div>
-                                    <input type="hidden" id="export-status" value="">
-                                </div>
+                                <input type="hidden" id="export-end-time">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">文件名</label>
+                            <div class="token-input">
+                                <input type="text" id="export-filename" class="form-input" value="logs_export" placeholder="输入导出文件名">
+                                <span class="filename-ext" id="filename-ext">.xlsx</span>
                             </div>
                         </div>
                     </div>
-
-                    <div class="export-side">
-                        <div class="export-section export-preview-shell">
-                            <div class="section-title"><i class="fas fa-eye"></i> 导出预览</div>
-                            <div class="export-preview">
-                                <div class="preview-item">
-                                    <span class="preview-label">预计导出条数</span>
-                                    <span class="preview-value" id="export-count">-</span>
-                                </div>
-                                <div class="preview-item">
-                                    <span class="preview-label">文件大小预估</span>
-                                    <span class="preview-value" id="export-size">-</span>
-                                </div>
-                                <div class="preview-item">
-                                    <span class="preview-label">时间范围</span>
-                                    <span class="preview-value" id="export-range">全部</span>
-                                </div>
-                            </div>
-                            <div class="export-actions">
-                                <button class="btn btn-primary btn-export" onclick="exportLogs()">
-                                    <i class="fas fa-download"></i>
-                                    <span>开始导出</span>
-                                </button>
-                            </div>
+                    <div class="time-preset-row">
+                        <button type="button" class="time-preset-btn" data-target="export" data-range="1h">最近1小时</button>
+                        <button type="button" class="time-preset-btn" data-target="export" data-range="24h">最近24小时</button>
+                        <button type="button" class="time-preset-btn" data-target="export" data-range="7d">最近7天</button>
+                        <button type="button" class="time-preset-btn" data-target="export" data-range="today">今天</button>
+                        <button type="button" class="time-preset-btn" data-target="export" data-range="clear">清空</button>
+                    </div>
+                    <div class="form-group" style="margin-top: 20px;">
+                        <label class="form-label">导出格式</label>
+                        <div class="export-format-grid">
+                            <button type="button" class="export-format-card active" data-format="excel" onclick="selectExportFormat('excel')"><i class="fas fa-file-excel"></i><span>Excel</span></button>
+                            <button type="button" class="export-format-card" data-format="csv" onclick="selectExportFormat('csv')"><i class="fas fa-file-csv"></i><span>CSV</span></button>
+                            <button type="button" class="export-format-card" data-format="json" onclick="selectExportFormat('json')"><i class="fas fa-file-code"></i><span>JSON</span></button>
                         </div>
-
-                        <div class="export-side-note">
-                            <i class="fas fa-circle-info"></i>
-                            <span>导出前建议先在“查询”页面确认筛选范围，避免导出无效数据。</span>
+                        <input type="hidden" id="export-format" value="excel">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">状态码筛选</label>
+                        <div class="status-selector">
+                            <button type="button" class="status-filter-btn status-tag success" data-status="200" onclick="toggleExportStatus(this)"><span class="status-code">200</span><span class="status-name">成功</span></button>
+                            <button type="button" class="status-filter-btn status-tag redirect" data-status="301,302" onclick="toggleExportStatus(this)"><span class="status-code">30x</span><span class="status-name">重定向</span></button>
+                            <button type="button" class="status-filter-btn status-tag client-error" data-status="400,401,403,404" onclick="toggleExportStatus(this)"><span class="status-code">40x</span><span class="status-name">客户端错误</span></button>
+                            <button type="button" class="status-filter-btn status-tag server-error" data-status="500,502,503" onclick="toggleExportStatus(this)"><span class="status-code">50x</span><span class="status-name">服务端错误</span></button>
+                        </div>
+                        <input type="hidden" id="export-status" value="">
+                    </div>
+                    <div class="export-preview-card">
+                        <div class="preview-item">
+                            <span class="preview-label">预计记录数</span>
+                            <span class="preview-value" id="export-count">-</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">预计大小</span>
+                            <span class="preview-value" id="export-size">-</span>
+                        </div>
+                        <div class="preview-item">
+                            <span class="preview-label">时间范围</span>
+                            <span class="preview-value" id="export-range">全部</span>
+                        </div>
+                    </div>
+                    <div class="filter-actions">
+                        <div class="filter-actions-left">
+                            <button class="btn btn-primary" onclick="exportLogs()"><i class="fas fa-download"></i> 开始导出</button>
                         </div>
                     </div>
                 </div>
             </section>
         </main>
-
-        <footer class="footer">
-            <p>轻量级高并发日志数据处理系统 | Go + Gin + SQLite</p>
-        </footer>
     </div>
 
-    <!-- 日志详情弹窗 -->
-    <div class="modal" id="log-modal">
+    <div id="log-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>日志详情</h3>
+                <h3 class="modal-title"><i class="fas fa-file-lines"></i> 日志详情</h3>
                 <button class="modal-close" onclick="closeModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <pre id="log-detail" style="background: var(--bg-secondary); padding: 16px; border-radius: 8px; overflow: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.6;"></pre>
+                <pre id="log-detail"></pre>
             </div>
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=13"></script>
+    <script src="/static/js/app.js"></script>
 </body>
 </html>

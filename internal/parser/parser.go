@@ -51,7 +51,11 @@ func (p *LogParser) SetConfig(cfg config.ParserConfig) {
 
 // Parse 解析日志行（自动识别格式）
 func (p *LogParser) Parse(line string) (*models.LogEntry, error) {
-	return p.ParseWithFormat(line, DetectFormat(line))
+	format := strings.TrimSpace(strings.ToLower(p.config.Format))
+	if format == "" || format == "auto" {
+		format = DetectFormat(line)
+	}
+	return p.ParseWithFormat(line, format)
 }
 
 // ParseWithFormat 使用指定格式解析日志行，适合批量导入时复用已检测格式。

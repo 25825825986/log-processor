@@ -4,6 +4,34 @@ let currentLimit = 20;
 let currentTotal = 0;
 let currentFilter = {};
 let currentTab = 'dashboard';
+let dashboardRefreshTimer = null;
+let dashboardRefreshIntervalSeconds = 30;
+let importConcurrency = 1;
+let displayColumns = ['timestamp', 'method', 'path', 'status_code', 'response_time', 'client_ip'];
+
+const DEFAULT_DISPLAY_COLUMNS = ['timestamp', 'method', 'path', 'status_code', 'response_time', 'client_ip'];
+const DISPLAY_COLUMN_DEFS = {
+    timestamp: { label: '时间' },
+    method: { label: '方法' },
+    path: { label: '路径' },
+    status_code: { label: '状态码' },
+    response_time: { label: '响应时间' },
+    client_ip: { label: '客户端 IP' }
+};
+
+const IMPORT_FORMAT_LABELS = {
+    auto: '自动识别',
+    nginx: 'Nginx',
+    apache: 'Apache',
+    json: 'JSON',
+    csv: 'CSV',
+    tsv: 'TSV',
+    pipe: 'Pipe',
+    semicolon: 'Semicolon',
+    syslog: 'Syslog',
+    plain: 'Plain Text',
+    unknown: '未知格式'
+};
 
 // 设置存储保留时间
 function setRetention(hours) {
@@ -23,15 +51,37 @@ function updateRetentionButtons(currentHours) {
     });
 }
 
-// 初始化存储保留时间输入框事件
-document.addEventListener('DOMContentLoaded', () => {
-    const retentionInput = document.getElementById('storage-retention');
-    if (retentionInput) {
-        retentionInput.addEventListener('change', function() {
-            updateRetentionButtons(parseInt(this.value));
-        });
+function formatImportFormat(format) {
+    if (!format) return '未识别';
+    return IMPORT_FORMAT_LABELS[format] || format.toUpperCase();
+}
+
+function updateImportHintCards(config) {
+    const parserModeEl = document.getElementById('import-parser-format-display');
+    const maxLinesEl = document.getElementById('import-max-lines-display');
+    const concurrencyEl = document.getElementById('import-concurrency-display');
+
+    if (parserModeEl) {
+        parserModeEl.textContent = formatImportFormat(config?.parser?.format || 'auto');
     }
-});
+    if (maxLinesEl) {
+        maxLinesEl.textContent = `${Number(config?.import?.max_lines || 100000).toLocaleString()} 条`;
+    }
+    if (concurrencyEl) {
+        concurrencyEl.textContent = `${Math.max(1, Number(config?.import?.concurrency || 1))} 个文件`;
+    }
+}
+
+function bindRetentionInput() {
+    const retentionInput = document.getElementById('storage-retention');
+    if (!retentionInput || retentionInput.dataset.bound === 'true') {
+        return;
+    }
+    retentionInput.addEventListener('change', function() {
+        updateRetentionButtons(parseInt(this.value, 10));
+    });
+    retentionInput.dataset.bound = 'true';
+}
 
 // 时间格式预设（用于日志解析配置）
 const TIME_FORMAT_PRESETS = [
@@ -87,6 +137,593 @@ const FORMAT_TIME_MAPPING = {
     'csv': '2006-01-02 15:04:05',
     'custom': ''
 };
+
+function mountConfigInterface() {
+    const configSection = document.getElementById('config');
+    if (!configSection) return;
+
+    configSection.innerHTML = `
+        <div class="config-tabs">
+            <button class="config-tab active" data-config="processor">
+                <div class="tab-header">
+                    <div class="tab-icon"><i class="fas fa-microchip"></i></div>
+                    <div class="tab-title">处理配置</div>
+                </div>
+                <div class="tab-desc">并发参数、解析模式与溢写保护</div>
+            </button>
+            <button class="config-tab" data-config="receiver">
+                <div class="tab-header">
+                    <div class="tab-icon"><i class="fas fa-network-wired"></i></div>
+                    <div class="tab-title">接收配置</div>
+                </div>
+                <div class="tab-desc">接收器开关、端口与高级限制</div>
+            </button>
+            <button class="config-tab" data-config="storage">
+                <div class="tab-header">
+                    <div class="tab-icon"><i class="fas fa-database"></i></div>
+                    <div class="tab-title">存储配置</div>
+                </div>
+                <div class="tab-desc">数据库信息、保留策略与维护操作</div>
+            </button>
+            <button class="config-tab" data-config="system">
+                <div class="tab-header">
+                    <div class="tab-icon"><i class="fas fa-sliders"></i></div>
+                    <div class="tab-title">系统策略</div>
+                </div>
+                <div class="tab-desc">显示、导入、告警与压测配置</div>
+            </button>
+        </div>
+
+        <div id="config-processor" class="config-panel active">
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-rocket"></i> 性能预设</div>
+                <div class="preset-cards">
+                    <div class="preset-card" data-preset="dev" onclick="applyPreset('dev')">
+                        <div class="preset-icon"><i class="fas fa-bug"></i></div>
+                        <div class="preset-info">
+                            <div class="preset-name">开发模式</div>
+                            <div class="preset-desc">2 个工作协程，小批次，便于调试</div>
+                        </div>
+                    </div>
+                    <div class="preset-card active" data-preset="standard" onclick="applyPreset('standard')">
+                        <div class="preset-icon"><i class="fas fa-balance-scale"></i></div>
+                        <div class="preset-info">
+                            <div class="preset-name">标准模式</div>
+                            <div class="preset-desc">兼顾稳定性与吞吐，适合答辩演示</div>
+                        </div>
+                    </div>
+                    <div class="preset-card" data-preset="high" onclick="applyPreset('high')">
+                        <div class="preset-icon"><i class="fas fa-tachometer-alt"></i></div>
+                        <div class="preset-info">
+                            <div class="preset-name">高吞吐</div>
+                            <div class="preset-desc">更高并发与更大批次</div>
+                        </div>
+                    </div>
+                    <div class="preset-card" data-preset="ultra" onclick="applyPreset('ultra')">
+                        <div class="preset-icon"><i class="fas fa-bolt"></i></div>
+                        <div class="preset-info">
+                            <div class="preset-name">压测模式</div>
+                            <div class="preset-desc">用于极限压测与容量探索</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-sliders-h"></i> 工作参数</div>
+                <div class="compact-configs">
+                    <div class="compact-item">
+                        <label>工作协程</label>
+                        <input type="range" id="processor-workers" min="1" max="100" value="10" oninput="updateSliderValue('processor-workers', this.value)">
+                        <span class="value-badge" id="processor-workers-value">10</span>
+                    </div>
+                    <div class="compact-item">
+                        <label>批处理大小</label>
+                        <input type="range" id="processor-batch-size" min="10" max="1000" step="10" value="100" oninput="updateSliderValue('processor-batch-size', this.value)">
+                        <span class="value-badge" id="processor-batch-size-value">100</span>
+                    </div>
+                    <div class="compact-item">
+                        <label>超时（ms）</label>
+                        <input type="range" id="processor-timeout" min="100" max="5000" step="100" value="1000" oninput="updateSliderValue('processor-timeout', this.value)">
+                        <span class="value-badge" id="processor-timeout-value">1000</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-code-branch"></i> 解析模式</div>
+                <div class="security-configs">
+                    <div class="form-group">
+                        <label for="parser-format">日志格式</label>
+                        <select id="parser-format" class="form-input">
+                            <option value="auto">自动识别</option>
+                            <option value="nginx">Nginx</option>
+                            <option value="apache">Apache</option>
+                            <option value="json">JSON</option>
+                            <option value="csv">CSV</option>
+                            <option value="tsv">TSV</option>
+                            <option value="pipe">Pipe</option>
+                            <option value="semicolon">Semicolon</option>
+                            <option value="syslog">Syslog</option>
+                            <option value="plain">Plain Text</option>
+                        </select>
+                        <div class="config-helper">固定格式会直接按指定格式解析；自动识别适合混合日志来源。</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-box-open"></i> 溢写保护</div>
+                <div class="security-configs">
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <i class="fas fa-database"></i>
+                            <div>
+                                <div class="switch-name">启用磁盘溢写</div>
+                                <div class="switch-desc">当处理队列拥堵时，将日志暂存到磁盘，减少直接丢弃。</div>
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="processor-overflow-enabled" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="port-configs config-grid-2">
+                        <div class="port-item">
+                            <label>溢写目录</label>
+                            <input type="text" id="processor-overflow-dir" value="./data/overflow" class="form-input">
+                        </div>
+                        <div class="port-item">
+                            <label>磁盘上限（MB）</label>
+                            <input type="number" id="processor-overflow-max-mb" value="512" min="16" max="20480" class="form-input">
+                        </div>
+                        <div class="port-item">
+                            <label>回灌批次</label>
+                            <input type="number" id="processor-overflow-drain-batch" value="1000" min="1" max="20000" class="form-input">
+                        </div>
+                        <div class="port-item">
+                            <label>回灌间隔（ms）</label>
+                            <input type="number" id="processor-overflow-drain-interval" value="200" min="10" max="5000" class="form-input">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="config-receiver" class="config-panel" style="display: none;">
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-power-off"></i> 接收器开关</div>
+                <div class="receiver-switches">
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <i class="fas fa-network-wired"></i>
+                            <div>
+                                <div class="switch-name">TCP 接收器</div>
+                                <div class="switch-desc">可靠传输，适合重要日志</div>
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="receiver-tcp" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <i class="fas fa-broadcast-tower"></i>
+                            <div>
+                                <div class="switch-name">UDP 接收器</div>
+                                <div class="switch-desc">吞吐更高，适合允许少量丢失的场景</div>
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="receiver-udp" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <i class="fas fa-globe"></i>
+                            <div>
+                                <div class="switch-name">HTTP 接收器</div>
+                                <div class="switch-desc">便于接口联调、批量提交与脚本测试</div>
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="receiver-http" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-plug"></i> 端口配置</div>
+                <div class="port-configs">
+                    <div class="port-item">
+                        <label>TCP 端口</label>
+                        <input type="number" id="receiver-tcp-port" value="9000" min="1" max="65535" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>UDP 端口</label>
+                        <input type="number" id="receiver-udp-port" value="9001" min="1" max="65535" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>HTTP 端口</label>
+                        <input type="number" id="receiver-http-port" value="9002" min="1" max="65535" class="form-input">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-shield-alt"></i> 安全配置</div>
+                <div class="security-configs">
+                    <div class="form-group">
+                        <label>HTTP Token（可选）</label>
+                        <div class="token-input">
+                            <input type="text" id="receiver-http-token" class="form-input" placeholder="输入 HTTP 接收器认证 Token" autocomplete="off">
+                            <button type="button" class="btn-generate" onclick="generateToken()">
+                                <i class="fas fa-key"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>IP 白名单（逗号分隔）</label>
+                        <input type="text" id="receiver-http-ips" class="form-input" placeholder="127.0.0.1, 192.168.1.0/24">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-tune"></i> 高级接收参数</div>
+                <div class="port-configs config-grid-2">
+                    <div class="port-item">
+                        <label>HTTP 限流（次/分钟，0 为不限）</label>
+                        <input type="number" id="receiver-http-rate" value="0" min="0" max="100000" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>HTTP 最大请求体（MB）</label>
+                        <input type="number" id="receiver-http-max-body" value="10" min="1" max="1024" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>接收缓冲区（字节）</label>
+                        <input type="number" id="receiver-buffer" value="8192" min="1024" max="65536" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>最大并发连接数</label>
+                        <input type="number" id="receiver-max-connections" value="1000" min="1" max="100000" class="form-input">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-file-waveform"></i> 文件监控</div>
+                <div class="security-configs">
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <i class="fas fa-file-lines"></i>
+                            <div>
+                                <div class="switch-name">启用文件追加监控</div>
+                                <div class="switch-desc">轮询监控指定文件的新追加内容，适合本地日志文件接入。</div>
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="receiver-file-watcher">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>监控路径（每行一个）</label>
+                        <textarea id="receiver-watch-paths" class="form-input config-textarea" placeholder="./logs/access.log&#10;./logs/error.log"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="config-storage" class="config-panel" style="display: none;">
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-info-circle"></i> 存储信息</div>
+                <div class="storage-info">
+                    <div class="info-item">
+                        <i class="fas fa-database"></i>
+                        <div>
+                            <div class="info-label">引擎</div>
+                            <div class="info-value">SQLite</div>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-folder"></i>
+                        <div>
+                            <div class="info-label">路径</div>
+                            <div class="info-value" id="storage-path-text">./data/logs.db</div>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-hdd"></i>
+                        <div>
+                            <div class="info-label">大小</div>
+                            <div class="info-value" id="storage-size">--</div>
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" id="storage-db-path" value="./data/logs.db">
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-clock"></i> 保留策略</div>
+                <div class="retention-options compact">
+                    <button type="button" class="retention-btn" data-hours="24" onclick="setRetention(24)">
+                        <div class="retention-label">1 天</div>
+                    </button>
+                    <button type="button" class="retention-btn" data-hours="168" onclick="setRetention(168)">
+                        <div class="retention-label">1 周</div>
+                    </button>
+                    <button type="button" class="retention-btn active" data-hours="720" onclick="setRetention(720)">
+                        <div class="retention-label">30 天</div>
+                    </button>
+                    <button type="button" class="retention-btn" data-hours="2160" onclick="setRetention(2160)">
+                        <div class="retention-label">3 个月</div>
+                    </button>
+                    <button type="button" class="retention-btn" data-hours="8760" onclick="setRetention(8760)">
+                        <div class="retention-label">1 年</div>
+                    </button>
+                </div>
+                <div class="retention-custom">
+                    <input type="number" id="storage-retention" value="720" min="1" max="8760" class="form-input">
+                    <span>小时</span>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-tools"></i> 数据维护</div>
+                <div class="data-actions">
+                    <button type="button" class="btn btn-secondary" onclick="copyPath()">
+                        <i class="fas fa-copy"></i> 复制路径
+                    </button>
+                    <button type="button" class="btn btn-warning" onclick="compactDB()">
+                        <i class="fas fa-compress"></i> 压缩数据库
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="config-system" class="config-panel" style="display: none;">
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-desktop"></i> 显示配置</div>
+                <div class="port-configs config-grid-2">
+                    <div class="port-item">
+                        <label>查询页每页条数</label>
+                        <input type="number" id="display-page-size" value="50" min="10" max="500" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>概览自动刷新间隔（秒，0 为关闭）</label>
+                        <input type="number" id="display-refresh-interval" value="10" min="0" max="3600" class="form-input">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>查询表格显示列</label>
+                    <div class="config-checkbox-grid">
+                        <label class="config-checkbox"><input type="checkbox" id="display-column-timestamp" value="timestamp" checked> <span>时间</span></label>
+                        <label class="config-checkbox"><input type="checkbox" id="display-column-method" value="method" checked> <span>方法</span></label>
+                        <label class="config-checkbox"><input type="checkbox" id="display-column-path" value="path" checked> <span>路径</span></label>
+                        <label class="config-checkbox"><input type="checkbox" id="display-column-status_code" value="status_code" checked> <span>状态码</span></label>
+                        <label class="config-checkbox"><input type="checkbox" id="display-column-response_time" value="response_time" checked> <span>响应时间</span></label>
+                        <label class="config-checkbox"><input type="checkbox" id="display-column-client_ip" value="client_ip" checked> <span>客户端 IP</span></label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-file-import"></i> 导入策略</div>
+                <div class="port-configs config-grid-2">
+                    <div class="port-item">
+                        <label>单文件最大导入条数</label>
+                        <input type="number" id="import-max-lines" value="100000" min="1000" max="100000" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>多文件导入并发数</label>
+                        <input type="number" id="import-concurrency" value="1" min="1" max="8" class="form-input">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-bell"></i> 告警阈值</div>
+                <div class="port-configs config-grid-2">
+                    <div class="port-item">
+                        <label>慢请求阈值（ms）</label>
+                        <input type="number" id="alert-slow-threshold" value="1000" min="1" max="600000" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>错误率阈值（%）</label>
+                        <input type="number" id="alert-error-rate-threshold" value="5" min="1" max="100" class="form-input">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <div class="section-title"><i class="fas fa-gauge-high"></i> 快速压测</div>
+                <div class="port-configs config-grid-3">
+                    <div class="port-item">
+                        <label>持续时间（秒）</label>
+                        <input type="number" id="benchmark-duration" value="10" min="3" max="300" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>并发协程数</label>
+                        <input type="number" id="benchmark-workers" value="20" min="1" max="200" class="form-input">
+                    </div>
+                    <div class="port-item">
+                        <label>目标 QPS（0 为不限）</label>
+                        <input type="number" id="benchmark-target-qps" value="0" min="0" max="1000000" class="form-input">
+                    </div>
+                </div>
+                <div class="data-actions">
+                    <button type="button" class="btn btn-secondary" id="benchmark-run-btn" onclick="runQuickBenchmark()">
+                        <i class="fas fa-play"></i> 运行压测
+                    </button>
+                </div>
+                <div class="form-group" style="margin-top: 16px;">
+                    <label>压测报告</label>
+                    <textarea id="benchmark-report" class="form-input config-textarea" readonly placeholder="压测结果会显示在这里"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="config-actions">
+            <div class="config-actions-left">
+                <button class="btn btn-primary btn-lg" onclick="saveConfig()">
+                    <i class="fas fa-save"></i>
+                    <span>保存配置</span>
+                </button>
+                <button class="btn btn-secondary" onclick="loadConfig()">
+                    <i class="fas fa-rotate-right"></i>
+                    <span>重新加载</span>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function ensureQueryTableHead() {
+    const table = document.getElementById('logs-table');
+    if (!table) return;
+
+    let thead = table.querySelector('thead');
+    if (!thead) {
+        thead = document.createElement('thead');
+        table.insertBefore(thead, table.firstChild);
+    }
+
+    let row = document.getElementById('logs-table-head-row');
+    if (!row) {
+        row = document.createElement('tr');
+        row.id = 'logs-table-head-row';
+        thead.innerHTML = '';
+        thead.appendChild(row);
+    }
+}
+
+function ensureSystemAlertsContainer() {
+    const dashboard = document.getElementById('dashboard');
+    if (!dashboard) return;
+
+    let container = document.getElementById('system-alerts');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'system-alerts';
+        const statsGrid = dashboard.querySelector('.stats-grid');
+        if (statsGrid) {
+            statsGrid.insertAdjacentElement('afterend', container);
+        }
+    }
+}
+
+function normalizeDisplayColumns(columns) {
+    const selected = Array.isArray(columns)
+        ? columns.filter(column => Object.prototype.hasOwnProperty.call(DISPLAY_COLUMN_DEFS, column))
+        : [];
+    return selected.length > 0 ? selected : [...DEFAULT_DISPLAY_COLUMNS];
+}
+
+function getSelectedDisplayColumns() {
+    const selected = Array.from(document.querySelectorAll('.config-checkbox-grid input[type="checkbox"]:checked'))
+        .map(input => input.value)
+        .filter(column => Object.prototype.hasOwnProperty.call(DISPLAY_COLUMN_DEFS, column));
+    return normalizeDisplayColumns(selected);
+}
+
+function renderLogsTableHeader() {
+    ensureQueryTableHead();
+    const row = document.getElementById('logs-table-head-row');
+    if (!row) return;
+
+    const headers = displayColumns.map(column => `<th>${DISPLAY_COLUMN_DEFS[column].label}</th>`);
+    headers.push('<th>操作</th>');
+    row.innerHTML = headers.join('');
+}
+
+function configureDashboardRefresh(intervalSeconds) {
+    dashboardRefreshIntervalSeconds = Math.max(0, Number(intervalSeconds) || 0);
+    if (dashboardRefreshTimer) {
+        clearInterval(dashboardRefreshTimer);
+        dashboardRefreshTimer = null;
+    }
+
+    if (dashboardRefreshIntervalSeconds <= 0) {
+        return;
+    }
+
+    dashboardRefreshTimer = setInterval(() => {
+        if (currentTab === 'dashboard') {
+            console.log('[App] Auto-refreshing dashboard...');
+            loadDashboard();
+        }
+    }, dashboardRefreshIntervalSeconds * 1000);
+}
+
+function applyClientConfig(config) {
+    const displayConfig = config.display || {};
+    currentPage = 1;
+    currentLimit = Math.max(10, Number(displayConfig.page_size) || currentLimit || 20);
+    displayColumns = normalizeDisplayColumns(displayConfig.columns);
+    importConcurrency = Math.max(1, Math.min(8, Number(config.import?.concurrency) || 1));
+
+    const displayPageSizeInput = document.getElementById('display-page-size');
+    const importConcurrencyInput = document.getElementById('import-concurrency');
+    if (displayPageSizeInput) displayPageSizeInput.value = String(currentLimit);
+    if (importConcurrencyInput) importConcurrencyInput.value = String(importConcurrency);
+
+    Object.keys(DISPLAY_COLUMN_DEFS).forEach(column => {
+        const checkbox = document.getElementById(`display-column-${column}`);
+        if (checkbox) {
+            checkbox.checked = displayColumns.includes(column);
+        }
+    });
+
+    renderLogsTableHeader();
+    configureDashboardRefresh(displayConfig.refresh_interval ?? dashboardRefreshIntervalSeconds);
+    updateImportHintCards(config);
+    updatePagination();
+}
+
+function renderSystemAlerts(alerts) {
+    const container = document.getElementById('system-alerts');
+    if (!container) return;
+
+    const alertList = Array.isArray(alerts) ? alerts : [];
+    if (alertList.length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-success">
+                <i class="fas fa-circle-check"></i>
+                <div>
+                    <div>当前系统状态稳定</div>
+                    <small>暂无需要关注的性能或错误率告警。</small>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = alertList.map(alertItem => {
+        const level = alertItem.level || 'info';
+        const iconMap = {
+            success: 'fa-circle-check',
+            warning: 'fa-triangle-exclamation',
+            error: 'fa-circle-exclamation',
+            info: 'fa-circle-info'
+        };
+        const title = alertItem.title || '系统提示';
+        const message = alertItem.message || '暂无详细信息';
+        return `
+            <div class="alert alert-${level}">
+                <i class="fas ${iconMap[level] || iconMap.info}"></i>
+                <div>
+                    <div>${title}</div>
+                    <small>${message}</small>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
 
 const TIME_PICKER_GROUPS = {
     filter: {
@@ -241,8 +878,8 @@ function initTimePickers() {
             applyTimePreset(btn.dataset.target, btn.dataset.range);
         });
     });
-
-    applyTimePreset('filter', '24h');
+    updateTimePresetButtons('filter', '');
+    updateTimePresetButtons('export', '');
 }
 
 // 数字输入项的取值范围
@@ -257,8 +894,16 @@ const NUMBER_INPUT_LIMITS = {
     'receiver-udp-port': { min: 1, max: 65535 },
     'receiver-http-port': { min: 1, max: 65535 },
     'receiver-http-rate': { min: 0, max: 100000 },
+    'receiver-http-max-body': { min: 1, max: 1024 },
     'receiver-buffer': { min: 1024, max: 65536 },
+    'receiver-max-connections': { min: 1, max: 100000 },
     'storage-retention': { min: 1, max: 8760 }, // 最长支持 8760 小时
+    'display-page-size': { min: 10, max: 500 },
+    'display-refresh-interval': { min: 0, max: 3600 },
+    'import-max-lines': { min: 1000, max: 100000 },
+    'import-concurrency': { min: 1, max: 8 },
+    'alert-slow-threshold': { min: 1, max: 600000 },
+    'alert-error-rate-threshold': { min: 1, max: 100 },
     'benchmark-duration': { min: 3, max: 300 },
     'benchmark-workers': { min: 1, max: 200 },
     'benchmark-target-qps': { min: 0, max: 1000000 }
@@ -345,7 +990,11 @@ function validateNumberInputs() {
 // 页面初始化
 document.addEventListener('DOMContentLoaded', () => {
     console.log('[App] Initializing...');
-    
+
+    mountConfigInterface();
+    ensureQueryTableHead();
+    ensureSystemAlertsContainer();
+    bindRetentionInput();
     initTabs();
     initConfigTabs();
     initUploadZone();
@@ -361,6 +1010,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 100);
     
     loadConfig();
+    renderLogsTableHeader();
+    configureDashboardRefresh(dashboardRefreshIntervalSeconds);
     
     console.log('[App] Initialization complete');
 });
@@ -729,12 +1380,20 @@ async function handleFiles(files) {
     let failFiles = 0;
     let hasSuccess = false;
     const totalBytes = fileList.reduce((sum, file) => sum + (file.size || 0), 0);
-    let uploadedBytes = 0;
-    let currentFileUploadedBytes = 0;
-    let requestPending = false;
-    let speedHint = '';
-    let processingProgress = null;
     const startedAt = Date.now();
+    const concurrency = Math.max(1, Math.min(fileList.length, Number(importConcurrency) || 1));
+    const fileStates = fileList.map(file => ({
+        file,
+        uploadedBytes: 0,
+        percent: 0,
+        phase: 'queued',
+        detectedFormat: '',
+        parsedLines: 0,
+        writtenLines: 0,
+        skippedLines: 0,
+        targetLines: 0,
+        active: false
+    }));
 
     if (selectedCountEl) selectedCountEl.textContent = String(fileList.length);
     if (successCountEl) successCountEl.textContent = '0';
@@ -744,56 +1403,60 @@ async function handleFiles(files) {
     resultsSection.style.display = 'none';
     resultsDiv.innerHTML = '';
 
-    const updateProgressStats = (doneFiles) => {
-        const backendPercent = requestPending && processingProgress
-            ? Math.max(0, Math.min(100, Number(processingProgress.percent || 0)))
-            : null;
-        const displayUploaded = uploadedBytes + currentFileUploadedBytes;
-        const percent = backendPercent !== null
-            ? Math.round(backendPercent)
-            : totalBytes > 0
-                ? Math.min(100, Math.round((displayUploaded / totalBytes) * 100))
-                : Math.round((doneFiles / fileList.length) * 100);
-        const displayPercent = percent;
+    const updateProgressStats = () => {
+        const completedFiles = fileStates.filter(state => state.phase === 'completed' || state.phase === 'partial' || state.phase === 'warning' || state.phase === 'error').length;
+        const activeFiles = fileStates.filter(state => state.active).length;
+        const knownTargetStates = fileStates.filter(state => state.targetLines > 0);
+        const totalTargetLines = knownTargetStates.reduce((sum, state) => sum + state.targetLines, 0);
+        const totalParsedLines = knownTargetStates.reduce((sum, state) => sum + state.parsedLines, 0);
+        const totalWrittenLines = knownTargetStates.reduce((sum, state) => sum + state.writtenLines, 0);
+        const totalSkippedLines = knownTargetStates.reduce((sum, state) => sum + state.skippedLines, 0);
+        const weightedProgress = totalBytes > 0
+            ? fileStates.reduce((sum, state) => sum + ((state.file.size || 0) * (state.percent / 100)), 0) / totalBytes
+            : completedFiles / fileList.length;
+        const displayPercent = Math.round(Math.max(0, Math.min(100, weightedProgress * 100)));
         progressPercent.textContent = `${displayPercent}%`;
         progressFill.style.width = `${displayPercent}%`;
 
+        if (activeFiles <= 1) {
+            const activeState = fileStates.find(state => state.active) || fileStates.find(state => state.phase === 'uploading' || state.phase === 'processing');
+            progressFilename.textContent = activeState ? activeState.file.name : '全部文件导入完成';
+        } else {
+            progressFilename.textContent = `并行导入中（进行中 ${activeFiles} / ${fileList.length}，已完成 ${completedFiles}）`;
+        }
+
         if (progressSize) {
-            if (requestPending && processingProgress) {
-                const parsed = Number(processingProgress.parsed_lines || 0).toLocaleString();
-                const target = Number(processingProgress.target_lines || 0).toLocaleString();
-                progressSize.textContent = `已解析 ${parsed} / ${target} 条`;
+            if (totalTargetLines > 0) {
+                progressSize.textContent = `已解析 ${totalParsedLines.toLocaleString()} / ${totalTargetLines.toLocaleString()} 条`;
             } else {
-                progressSize.textContent = `${formatBytes(displayUploaded)} / ${formatBytes(totalBytes)}`;
+                const uploadedBytes = fileStates.reduce((sum, state) => sum + state.uploadedBytes, 0);
+                progressSize.textContent = `${formatBytes(uploadedBytes)} / ${formatBytes(totalBytes)}`;
             }
         }
 
         if (progressSpeed) {
-            if (requestPending && processingProgress) {
-                const written = Number(processingProgress.written_lines || 0).toLocaleString();
-                const skipped = Number(processingProgress.skipped_lines || 0).toLocaleString();
-                progressSpeed.textContent = `已写入 ${written} 条 · 已跳过 ${skipped} 条`;
-            } else if (speedHint) {
-                progressSpeed.textContent = speedHint;
+            const activeState = fileStates.find(state => state.active) || fileStates.find(state => state.phase === 'processing');
+            if (totalTargetLines > 0) {
+                const formatSuffix = activeState?.detectedFormat ? ` · 识别格式 ${formatImportFormat(activeState.detectedFormat)}` : '';
+                progressSpeed.textContent = `已写入 ${totalWrittenLines.toLocaleString()} 条 · 已跳过 ${totalSkippedLines.toLocaleString()} 条${formatSuffix}`;
             } else {
+                const uploadedBytes = fileStates.reduce((sum, state) => sum + state.uploadedBytes, 0);
                 const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.1);
-                progressSpeed.textContent = `${formatBytes(displayUploaded / elapsedSeconds)}/s`;
+                progressSpeed.textContent = `${formatBytes(uploadedBytes / elapsedSeconds)}/s`;
             }
         }
     };
 
-    updateProgressStats(0);
+    updateProgressStats();
 
-    for (let i = 0; i < fileList.length; i++) {
-        const file = fileList[i];
-        const importId = createImportId(file, i);
+    const runSingleImport = async (file, index) => {
+        const importId = createImportId(file, index);
+        const state = fileStates[index];
         let stopProgressPolling = null;
-        progressFilename.textContent = file.name;
-        currentFileUploadedBytes = 0;
-        requestPending = true;
-        speedHint = '上传中...';
-        processingProgress = null;
-        updateProgressStats(i);
+        state.active = true;
+        state.phase = 'uploading';
+        state.percent = 0;
+        updateProgressStats();
 
         try {
             const response = await importFileWithProgress(
@@ -802,35 +1465,47 @@ async function handleFiles(files) {
                 (loaded, total) => {
                     const safeTotal = total > 0 ? total : (file.size || 1);
                     const ratio = Math.min(1, Math.max(0, loaded / safeTotal));
-                    currentFileUploadedBytes = Math.round((file.size || 0) * ratio);
-                    speedHint = '上传中...';
-                    updateProgressStats(i);
+                    state.uploadedBytes = Math.round((file.size || 0) * ratio);
+                    state.percent = Math.min(99, ratio * 100);
+                    updateProgressStats();
                 },
                 () => {
-                    currentFileUploadedBytes = file.size || currentFileUploadedBytes;
-                    speedHint = '';
+                    state.uploadedBytes = file.size || state.uploadedBytes;
+                    state.phase = 'processing';
                     if (!stopProgressPolling) {
                         stopProgressPolling = startImportProgressPolling(importId, (progress) => {
-                            processingProgress = progress;
-                            currentFileUploadedBytes = Math.round((file.size || 0) * (Number(progress.percent || 0) / 100));
-                            updateProgressStats(i);
+                            state.phase = progress.phase || 'processing';
+                            state.percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+                            state.uploadedBytes = Math.round((file.size || 0) * (state.percent / 100));
+                            state.detectedFormat = progress.detected_format || state.detectedFormat;
+                            state.parsedLines = Number(progress.parsed_lines || 0);
+                            state.writtenLines = Number(progress.written_lines || 0);
+                            state.skippedLines = Number(progress.skipped_lines || 0);
+                            state.targetLines = Number(progress.target_lines || 0);
+                            updateProgressStats();
                         });
                     }
-                    updateProgressStats(i);
+                    updateProgressStats();
                 }
             );
 
-            if ((file.size || 0) > 0 && currentFileUploadedBytes === 0) {
-                currentFileUploadedBytes = file.size;
-                speedHint = '';
+            if ((file.size || 0) > 0 && state.uploadedBytes === 0) {
+                state.uploadedBytes = file.size;
+                state.phase = 'processing';
                 if (!stopProgressPolling) {
                     stopProgressPolling = startImportProgressPolling(importId, (progress) => {
-                        processingProgress = progress;
-                        currentFileUploadedBytes = Math.round((file.size || 0) * (Number(progress.percent || 0) / 100));
-                        updateProgressStats(i);
+                        state.phase = progress.phase || 'processing';
+                        state.percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+                        state.uploadedBytes = Math.round((file.size || 0) * (state.percent / 100));
+                        state.detectedFormat = progress.detected_format || state.detectedFormat;
+                        state.parsedLines = Number(progress.parsed_lines || 0);
+                        state.writtenLines = Number(progress.written_lines || 0);
+                        state.skippedLines = Number(progress.skipped_lines || 0);
+                        state.targetLines = Number(progress.target_lines || 0);
+                        updateProgressStats();
                     });
                 }
-                updateProgressStats(i);
+                updateProgressStats();
             }
 
             let result = {};
@@ -847,6 +1522,12 @@ async function handleFiles(files) {
             const hasWarning = Boolean(result.warning);
             const isPartial = result.status === 'partial' || (accepted > 0 && imported < accepted);
             const isSuccess = response.ok && imported > 0;
+            state.detectedFormat = result.detected_format || state.detectedFormat;
+            state.parsedLines = Math.max(state.parsedLines, accepted);
+            state.writtenLines = Math.max(state.writtenLines, imported);
+            state.skippedLines = Math.max(state.skippedLines, dropped);
+            state.targetLines = Math.max(state.targetLines, accepted + dropped);
+            state.percent = 100;
 
             const resultItem = document.createElement('div');
             resultItem.className = 'result-item';
@@ -863,6 +1544,9 @@ async function handleFiles(files) {
                 if (dropped > 0) {
                     detailText += `（丢弃 ${dropped} 条）`;
                 }
+                if (state.detectedFormat) {
+                    detailText += `<br><span style="color: var(--primary); font-size: 12px;">识别格式：${formatImportFormat(state.detectedFormat)}</span>`;
+                }
                 if (hasWarning) {
                     detailText += `<br><span style="color: var(--warning); font-size: 12px;">${result.warning}</span>`;
                 }
@@ -878,17 +1562,19 @@ async function handleFiles(files) {
 
                 successFiles += 1;
                 hasSuccess = true;
+                state.phase = isPartial || hasWarning ? 'partial' : 'completed';
             } else if (result.status === 'warning') {
                 resultItem.classList.add('warning');
                 resultItem.innerHTML = `
                     <div class="result-icon"><i class="fas fa-exclamation-triangle"></i></div>
                     <div class="result-info">
                         <div class="result-filename">${file.name}</div>
-                        <div class="result-detail">${result.warning || '格式不匹配'}</div>
+                        <div class="result-detail">${result.warning || '格式不匹配'}${result.detected_format ? `<br><span style="color: var(--primary); font-size: 12px;">识别格式：${formatImportFormat(result.detected_format)}</span>` : ''}</div>
                     </div>
                     <div class="result-count">0</div>
                 `;
                 failFiles += 1;
+                state.phase = 'warning';
             } else {
                 resultItem.classList.add('error');
                 resultItem.innerHTML = `
@@ -899,6 +1585,7 @@ async function handleFiles(files) {
                     </div>
                 `;
                 failFiles += 1;
+                state.phase = 'error';
             }
 
             resultsDiv.appendChild(resultItem);
@@ -914,26 +1601,47 @@ async function handleFiles(files) {
             `;
             resultsDiv.appendChild(resultItem);
             failFiles += 1;
+            state.phase = 'error';
         } finally {
             if (stopProgressPolling) {
                 stopProgressPolling();
             }
-            requestPending = false;
-            speedHint = '';
-            processingProgress = null;
-            uploadedBytes += (file.size || 0);
-            currentFileUploadedBytes = 0;
-            updateProgressStats(i + 1);
+            state.active = false;
+            state.uploadedBytes = file.size || state.uploadedBytes;
+            state.percent = 100;
+            updateProgressStats();
             if (successCountEl) successCountEl.textContent = String(successFiles);
             if (failCountEl) failCountEl.textContent = String(failFiles);
         }
-    }
+    };
+
+    let nextIndex = 0;
+    const workers = Array.from({ length: concurrency }, async () => {
+        while (nextIndex < fileList.length) {
+            const currentIndex = nextIndex++;
+            await runSingleImport(fileList[currentIndex], currentIndex);
+        }
+    });
+
+    await Promise.all(workers);
 
     progressFill.style.width = '100%';
     progressPercent.textContent = '100%';
     if (progressSize) {
-        progressSize.textContent = `${formatBytes(totalBytes)} / ${formatBytes(totalBytes)}`;
+        const totalParsedLines = fileStates.reduce((sum, state) => sum + state.parsedLines, 0);
+        const totalTargetLines = fileStates.reduce((sum, state) => sum + state.targetLines, 0);
+        progressSize.textContent = totalTargetLines > 0
+            ? `已解析 ${totalParsedLines.toLocaleString()} / ${totalTargetLines.toLocaleString()} 条`
+            : `${formatBytes(totalBytes)} / ${formatBytes(totalBytes)}`;
     }
+    if (progressSpeed) {
+        const totalWrittenLines = fileStates.reduce((sum, state) => sum + state.writtenLines, 0);
+        const totalSkippedLines = fileStates.reduce((sum, state) => sum + state.skippedLines, 0);
+        if (totalWrittenLines > 0 || totalSkippedLines > 0) {
+            progressSpeed.textContent = `已写入 ${totalWrittenLines.toLocaleString()} 条 · 已跳过 ${totalSkippedLines.toLocaleString()} 条`;
+        }
+    }
+    progressFilename.textContent = '全部文件导入完成';
     resultsSection.style.display = 'block';
 
     setTimeout(() => {
@@ -978,6 +1686,8 @@ async function loadDashboard() {
         
         // 更新刷新时间
         document.getElementById('last-update').textContent = '刚刚更新';
+
+        renderSystemAlerts(stats.alerts || []);
         
         // 渲染状态码与方法分布
         renderStatusChart(stats.status_code_dist || {});
@@ -989,6 +1699,11 @@ async function loadDashboard() {
         document.getElementById('system-status').textContent = '连接失败';
         document.getElementById('system-status').className = 'stat-value error';
         document.getElementById('last-update').textContent = '刷新失败';
+        renderSystemAlerts([{
+            level: 'error',
+            title: '概览数据刷新失败',
+            message: '暂时无法从后端获取统计信息，请检查服务是否正常运行。'
+        }]);
         
         // 加载失败时显示空态
         renderEmptyChart('status-chart', '暂无数据');
@@ -1322,28 +2037,45 @@ async function queryLogs() {
 // 渲染日志表格
 function renderLogsTable(logs) {
     const tbody = document.querySelector('#logs-table tbody');
+    renderLogsTableHeader();
+    if (!tbody) return;
     tbody.innerHTML = '';
+    const columnCount = displayColumns.length + 1;
     
     if (!logs || logs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="no-data">暂无数据</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${columnCount}" class="no-data">暂无数据</td></tr>`;
         return;
     }
     
     logs.forEach(log => {
         const row = document.createElement('tr');
         const statusClass = getStatusCodeClass(log.status_code);
-        row.innerHTML = `
-            <td>${new Date(log.timestamp).toLocaleString()}</td>
-            <td><span class="method-badge method-${log.method}">${log.method || '-'}</span></td>
-            <td class="path-cell" title="${log.path || '-'}">${truncate(log.path, 30)}</td>
-            <td><span class="status-badge ${statusClass}">${log.status_code || '-'}</span></td>
-            <td>${log.response_time ? log.response_time + 'ms' : '-'}</td>
-            <td>${log.client_ip || '-'}</td>
+        const cells = displayColumns.map(column => {
+            switch (column) {
+                case 'timestamp':
+                    return `<td>${log.timestamp ? new Date(log.timestamp).toLocaleString() : '-'}</td>`;
+                case 'method':
+                    return `<td><span class="method-badge method-${log.method}">${log.method || '-'}</span></td>`;
+                case 'path':
+                    return `<td class="path-cell" title="${log.path || '-'}">${truncate(log.path, 30)}</td>`;
+                case 'status_code':
+                    return `<td><span class="status-badge ${statusClass}">${log.status_code || '-'}</span></td>`;
+                case 'response_time':
+                    return `<td>${log.response_time ? `${log.response_time}ms` : '-'}</td>`;
+                case 'client_ip':
+                    return `<td>${log.client_ip || '-'}</td>`;
+                default:
+                    return '<td>-</td>';
+            }
+        });
+
+        cells.push(`
             <td>
                 <button class="btn-view" data-log='${JSON.stringify(log).replace(/'/g, "&#39;")}'><i class="fas fa-eye"></i></button>
                 <button class="btn-delete" data-id="${log.id}"><i class="fas fa-trash"></i></button>
             </td>
-        `;
+        `);
+        row.innerHTML = cells.join('');
         tbody.appendChild(row);
     });
     
@@ -1634,14 +2366,18 @@ function truncate(str, length) {
 function viewLogDetail(log) {
     const modal = document.getElementById('log-modal');
     const detail = document.getElementById('log-detail');
-    
+    if (!modal || !detail) return;
+
     detail.textContent = JSON.stringify(log, null, 2);
     modal.classList.add('active');
 }
 
 // 关闭详情弹窗
 function closeModal() {
-    document.getElementById('log-modal').classList.remove('active');
+    const modal = document.getElementById('log-modal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
 }
 
 // 切换查询方法标签
@@ -2019,9 +2755,11 @@ async function loadConfig() {
         const workersInput = document.getElementById('processor-workers');
         const batchSizeInput = document.getElementById('processor-batch-size');
         const timeoutInput = document.getElementById('processor-timeout');
+        const parserFormatInput = document.getElementById('parser-format');
         if (workersInput) workersInput.value = workers;
         if (batchSizeInput) batchSizeInput.value = batchSize;
         if (timeoutInput) timeoutInput.value = timeout;
+        if (parserFormatInput) parserFormatInput.value = config.parser?.format || 'auto';
 
         const overflowEnabledInput = document.getElementById('processor-overflow-enabled');
         const overflowDirInput = document.getElementById('processor-overflow-dir');
@@ -2059,6 +2797,18 @@ async function loadConfig() {
         if (httpPortInput) httpPortInput.value = config.receiver?.http_port || 9002;
         if (httpTokenInput) httpTokenInput.value = config.receiver?.http_auth_token || '';
         if (httpIpsInput) httpIpsInput.value = (config.receiver?.http_allowed_ips || []).join(', ');
+        const httpRateInput = document.getElementById('receiver-http-rate');
+        const httpMaxBodyInput = document.getElementById('receiver-http-max-body');
+        const receiverBufferInput = document.getElementById('receiver-buffer');
+        const receiverMaxConnectionsInput = document.getElementById('receiver-max-connections');
+        const fileWatcherInput = document.getElementById('receiver-file-watcher');
+        const watchPathsInput = document.getElementById('receiver-watch-paths');
+        if (httpRateInput) httpRateInput.value = config.receiver?.http_rate_limit ?? 0;
+        if (httpMaxBodyInput) httpMaxBodyInput.value = Math.max(1, Math.round((config.receiver?.http_max_body_size || 10 * 1024 * 1024) / (1024 * 1024)));
+        if (receiverBufferInput) receiverBufferInput.value = config.receiver?.buffer_size || 8192;
+        if (receiverMaxConnectionsInput) receiverMaxConnectionsInput.value = config.receiver?.max_connections || 1000;
+        if (fileWatcherInput) fileWatcherInput.checked = config.receiver?.file_watcher_enabled ?? false;
+        if (watchPathsInput) watchPathsInput.value = (config.receiver?.watch_paths || []).join('\n');
         
         // Storage 配置
         const dbPath = config.storage?.db_path || './data/logs.db';
@@ -2073,7 +2823,23 @@ async function loadConfig() {
         const retention = config.storage?.retention_hours || 720;
         const retentionInput = document.getElementById('storage-retention');
         if (retentionInput) retentionInput.value = retention;
+        bindRetentionInput();
         updateRetentionButtons(retention);
+
+        const displayPageSizeInput = document.getElementById('display-page-size');
+        const displayRefreshIntervalInput = document.getElementById('display-refresh-interval');
+        const importMaxLinesInput = document.getElementById('import-max-lines');
+        const importConcurrencyInput = document.getElementById('import-concurrency');
+        const alertSlowThresholdInput = document.getElementById('alert-slow-threshold');
+        const alertErrorRateInput = document.getElementById('alert-error-rate-threshold');
+        if (displayPageSizeInput) displayPageSizeInput.value = config.display?.page_size || 50;
+        if (displayRefreshIntervalInput) displayRefreshIntervalInput.value = config.display?.refresh_interval ?? 10;
+        if (importMaxLinesInput) importMaxLinesInput.value = config.import?.max_lines || 100000;
+        if (importConcurrencyInput) importConcurrencyInput.value = config.import?.concurrency || 1;
+        if (alertSlowThresholdInput) alertSlowThresholdInput.value = config.alert?.slow_threshold || 1000;
+        if (alertErrorRateInput) alertErrorRateInput.value = config.alert?.error_rate_threshold || 5;
+
+        applyClientConfig(config);
 
     } catch (error) {
         console.error('Failed to load config:', error);
@@ -2108,8 +2874,13 @@ async function saveConfig() {
         alert('请检查输入，有些数值超出了允许范围');
         return;
     }
+
+    const refreshIntervalRaw = parseInt(document.getElementById('display-refresh-interval')?.value, 10);
     
     const config = {
+        parser: {
+            format: document.getElementById('parser-format')?.value || 'auto'
+        },
         processor: {
             worker_count: parseInt(document.getElementById('processor-workers')?.value) || 10,
             batch_size: parseInt(document.getElementById('processor-batch-size')?.value) || 100,
@@ -2128,11 +2899,33 @@ async function saveConfig() {
             http_enabled: document.getElementById('receiver-http')?.checked ?? true,
             http_port: parseInt(document.getElementById('receiver-http-port')?.value) || 9002,
             http_auth_token: document.getElementById('receiver-http-token')?.value || '',
-            http_allowed_ips: (document.getElementById('receiver-http-ips')?.value || '').split(',').map(s => s.trim()).filter(s => s)
+            http_allowed_ips: (document.getElementById('receiver-http-ips')?.value || '').split(',').map(s => s.trim()).filter(s => s),
+            http_rate_limit: parseInt(document.getElementById('receiver-http-rate')?.value) || 0,
+            http_max_body_size: (parseInt(document.getElementById('receiver-http-max-body')?.value) || 10) * 1024 * 1024,
+            buffer_size: parseInt(document.getElementById('receiver-buffer')?.value) || 8192,
+            max_connections: parseInt(document.getElementById('receiver-max-connections')?.value) || 1000,
+            file_watcher_enabled: document.getElementById('receiver-file-watcher')?.checked ?? false,
+            watch_paths: (document.getElementById('receiver-watch-paths')?.value || '')
+                .split(/\r?\n/)
+                .map(line => line.trim())
+                .filter(line => line)
         },
         storage: {
             db_path: document.getElementById('storage-db-path')?.value || './data/logs.db',
             retention_hours: parseInt(document.getElementById('storage-retention')?.value) || 720
+        },
+        display: {
+            page_size: parseInt(document.getElementById('display-page-size')?.value) || 50,
+            refresh_interval: Number.isNaN(refreshIntervalRaw) ? 10 : refreshIntervalRaw,
+            columns: getSelectedDisplayColumns()
+        },
+        import: {
+            max_lines: parseInt(document.getElementById('import-max-lines')?.value) || 100000,
+            concurrency: parseInt(document.getElementById('import-concurrency')?.value) || 1
+        },
+        alert: {
+            slow_threshold: parseInt(document.getElementById('alert-slow-threshold')?.value) || 1000,
+            error_rate_threshold: parseInt(document.getElementById('alert-error-rate-threshold')?.value) || 5
         }
     };
     
@@ -2149,6 +2942,13 @@ async function saveConfig() {
         if (response.ok) {
             const result = await response.json();
             console.log('[Config] 配置保存成功:', result);
+            applyClientConfig(config);
+            if (currentTab === 'query') {
+                queryLogs();
+            }
+            if (currentTab === 'dashboard') {
+                loadDashboard();
+            }
             alert('配置保存成功');
         } else {
             const result = await response.json().catch(() => ({ error: '未知错误' }));
@@ -2168,14 +2968,6 @@ window.onclick = function(event) {
         closeModal();
     }
 };
-
-// 定时自动刷新概览
-setInterval(() => {
-    if (currentTab === 'dashboard') {
-        console.log('[App] Auto-refreshing dashboard...');
-        loadDashboard();
-    }
-}, 30000);
 
 // 页面重新可见时刷新概览
 document.addEventListener('visibilitychange', () => {

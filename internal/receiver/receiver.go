@@ -51,7 +51,7 @@ func (m *Manager) Start(handler Handler) error {
 	m.handler = handler
 
 	if m.config.TCPEnabled {
-		tcpReceiver := NewTCPReceiver(m.config.TCPPort, m.config.BufferSize)
+		tcpReceiver := NewTCPReceiver(m.config.TCPPort, m.config.BufferSize, m.config.MaxConnections)
 		m.receivers = append(m.receivers, tcpReceiver)
 		m.wg.Add(1)
 		go func() {
@@ -92,6 +92,18 @@ func (m *Manager) Start(handler Handler) error {
 		}()
 	}
 
+	if m.config.FileWatcherEnabled && len(m.config.WatchPaths) > 0 {
+		fileWatcher := NewFileWatcherReceiver(m.config.WatchPaths, time.Second)
+		m.receivers = append(m.receivers, fileWatcher)
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			if err := fileWatcher.Start(m.handler); err != nil {
+				log.Printf("File watcher receiver error: %v", err)
+			}
+		}()
+	}
+
 	return nil
 }
 
@@ -107,22 +119,29 @@ func (m *Manager) Stop() error {
 
 // TCPReceiver TCP接收器
 type TCPReceiver struct {
-	port      int
-	bufferSize int
-	listener  net.Listener
-	handler   Handler
-	ctx       context.Context
-	cancel    context.CancelFunc
+	port           int
+	bufferSize     int
+	maxConnections int
+	connLimiter    chan struct{}
+	listener       net.Listener
+	handler        Handler
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 // NewTCPReceiver 创建TCP接收器
-func NewTCPReceiver(port, bufferSize int) *TCPReceiver {
+func NewTCPReceiver(port, bufferSize, maxConnections int) *TCPReceiver {
 	ctx, cancel := context.WithCancel(context.Background())
+	if maxConnections <= 0 {
+		maxConnections = 1000
+	}
 	return &TCPReceiver{
-		port:       port,
-		bufferSize: bufferSize,
-		ctx:        ctx,
-		cancel:     cancel,
+		port:           port,
+		bufferSize:     bufferSize,
+		maxConnections: maxConnections,
+		connLimiter:    make(chan struct{}, maxConnections),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -158,13 +177,25 @@ func (r *TCPReceiver) Start(handler Handler) error {
 			continue
 		}
 
-		go r.handleConnection(conn)
+		select {
+		case r.connLimiter <- struct{}{}:
+			go r.handleConnection(conn)
+		default:
+			log.Printf("TCP receiver connection limit reached (%d), dropping %s", r.maxConnections, conn.RemoteAddr())
+			conn.Close()
+		}
 	}
 }
 
 // handleConnection 处理连接
 func (r *TCPReceiver) handleConnection(conn net.Conn) {
 	defer conn.Close()
+	defer func() {
+		select {
+		case <-r.connLimiter:
+		default:
+		}
+	}()
 
 	reader := bufio.NewReaderSize(conn, r.bufferSize)
 	for {
@@ -493,6 +524,113 @@ func (r *HTTPReceiver) Stop() error {
 	return nil
 }
 
+// FileWatcherReceiver 轮询监控文件追加内容
+type FileWatcherReceiver struct {
+	paths        []string
+	pollInterval time.Duration
+	handler      Handler
+	ctx          context.Context
+	cancel       context.CancelFunc
+}
+
+// NewFileWatcherReceiver 创建文件监控接收器
+func NewFileWatcherReceiver(paths []string, pollInterval time.Duration) *FileWatcherReceiver {
+	ctx, cancel := context.WithCancel(context.Background())
+	if pollInterval <= 0 {
+		pollInterval = time.Second
+	}
+	return &FileWatcherReceiver{
+		paths:        append([]string(nil), paths...),
+		pollInterval: pollInterval,
+		ctx:          ctx,
+		cancel:       cancel,
+	}
+}
+
+// Start 启动文件监控
+func (r *FileWatcherReceiver) Start(handler Handler) error {
+	r.handler = handler
+	offsets := make(map[string]int64, len(r.paths))
+
+	for _, path := range r.paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			log.Printf("File watcher skipped missing path: %s (%v)", path, err)
+			continue
+		}
+		// 监控模式默认从文件末尾开始，只处理新增内容。
+		offsets[path] = info.Size()
+	}
+
+	ticker := time.NewTicker(r.pollInterval)
+	defer ticker.Stop()
+
+	log.Printf("File watcher receiver enabled for %d path(s)", len(r.paths))
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return nil
+		case <-ticker.C:
+			for _, path := range r.paths {
+				if err := r.drainFile(path, offsets); err != nil {
+					log.Printf("File watcher read error (%s): %v", path, err)
+				}
+			}
+		}
+	}
+}
+
+func (r *FileWatcherReceiver) drainFile(path string, offsets map[string]int64) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	offset := offsets[path]
+	if info.Size() < offset {
+		offset = 0
+	}
+
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return err
+	}
+
+	reader := bufio.NewReader(file)
+	currentOffset := offset
+	for {
+		line, readErr := reader.ReadString('\n')
+		if len(line) > 0 {
+			currentOffset += int64(len(line))
+			trimmed := strings.TrimRight(line, "\r\n")
+			if strings.TrimSpace(trimmed) != "" {
+				r.handler(trimmed)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+
+	offsets[path] = currentOffset
+	return nil
+}
+
+// Stop 停止文件监控
+func (r *FileWatcherReceiver) Stop() error {
+	r.cancel()
+	return nil
+}
+
 // FileImporter 文件导入器
 type FileImporter struct {
 	handler Handler
@@ -528,5 +666,3 @@ func (f *FileImporter) ImportFile(filepath string, handler func(string) bool) (i
 	log.Printf("Imported %d lines from %s", lineCount, filepath)
 	return lineCount, nil
 }
-
-

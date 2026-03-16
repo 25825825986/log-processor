@@ -31,19 +31,20 @@ type directBatchStorage interface {
 }
 
 type importProgressState struct {
-	ID           string    `json:"id"`
-	FileName     string    `json:"file_name"`
-	Phase        string    `json:"phase"`
-	ParsedLines  int64     `json:"parsed_lines"`
-	WrittenLines int64     `json:"written_lines"`
-	SkippedLines int64     `json:"skipped_lines"`
-	ScannedLines int64     `json:"scanned_lines"`
-	TargetLines  int64     `json:"target_lines"`
-	Percent      float64   `json:"percent"`
-	LimitReached bool      `json:"limit_reached"`
-	StartedAt    time.Time `json:"started_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Message      string    `json:"message,omitempty"`
+	ID             string    `json:"id"`
+	FileName       string    `json:"file_name"`
+	DetectedFormat string    `json:"detected_format,omitempty"`
+	Phase          string    `json:"phase"`
+	ParsedLines    int64     `json:"parsed_lines"`
+	WrittenLines   int64     `json:"written_lines"`
+	SkippedLines   int64     `json:"skipped_lines"`
+	ScannedLines   int64     `json:"scanned_lines"`
+	TargetLines    int64     `json:"target_lines"`
+	Percent        float64   `json:"percent"`
+	LimitReached   bool      `json:"limit_reached"`
+	StartedAt      time.Time `json:"started_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Message        string    `json:"message,omitempty"`
 }
 
 func min(a, b int) int {
@@ -183,6 +184,9 @@ func (s *Server) getConfig(c *gin.Context) {
 		"server":    cfg.Server,
 		"parser":    cfg.Parser,
 		"processor": cfg.Processor,
+		"alert":     cfg.Alert,
+		"display":   cfg.Display,
+		"import":    cfg.Import,
 		"storage":   cfg.Storage,
 		"receiver": gin.H{
 			"tcp_enabled":          cfg.Receiver.TCPEnabled,
@@ -621,9 +625,19 @@ func (s *Server) getStatistics(c *gin.Context) {
 		return
 	}
 
+	alerts := buildAlertSummaries(stats, s.config.Get().Alert)
 	log.Printf("[API] Statistics: total=%d, errors=%d, avg_response=%.2fms",
 		stats.TotalCount, stats.ErrorCount, stats.AvgResponseTime)
-	c.JSON(http.StatusOK, stats)
+	c.JSON(http.StatusOK, gin.H{
+		"total_count":       stats.TotalCount,
+		"error_count":       stats.ErrorCount,
+		"avg_response_time": stats.AvgResponseTime,
+		"status_code_dist":  stats.StatusCodeDist,
+		"method_dist":       stats.MethodDist,
+		"top_paths":         stats.TopPaths,
+		"time_series":       stats.TimeSeries,
+		"alerts":            alerts,
+	})
 }
 
 // exportLogs 导出日志
@@ -687,6 +701,8 @@ func (s *Server) getExportFormats(c *gin.Context) {
 func (s *Server) getStatus(c *gin.Context) {
 	cfg := s.config.Get()
 	stats := s.processor.GetStats()
+	storageStats, _ := s.storage.Statistics(models.FilterCondition{})
+	alerts := buildAlertSummaries(storageStats, cfg.Alert)
 
 	// 只返回基本配置信息，过滤敏感字段
 	c.JSON(http.StatusOK, gin.H{
@@ -694,18 +710,29 @@ func (s *Server) getStatus(c *gin.Context) {
 			"server":    cfg.Server,
 			"parser":    cfg.Parser,
 			"processor": cfg.Processor,
+			"alert":     cfg.Alert,
+			"display":   cfg.Display,
+			"import":    cfg.Import,
 			"receiver": gin.H{
-				"tcp_enabled":  cfg.Receiver.TCPEnabled,
-				"tcp_port":     cfg.Receiver.TCPPort,
-				"udp_enabled":  cfg.Receiver.UDPEnabled,
-				"udp_port":     cfg.Receiver.UDPPort,
-				"http_enabled": cfg.Receiver.HTTPEnabled,
-				"http_port":    cfg.Receiver.HTTPPort,
+				"tcp_enabled":          cfg.Receiver.TCPEnabled,
+				"tcp_port":             cfg.Receiver.TCPPort,
+				"udp_enabled":          cfg.Receiver.UDPEnabled,
+				"udp_port":             cfg.Receiver.UDPPort,
+				"http_enabled":         cfg.Receiver.HTTPEnabled,
+				"http_port":            cfg.Receiver.HTTPPort,
+				"http_rate_limit":      cfg.Receiver.HTTPRateLimit,
+				"http_max_body_size":   cfg.Receiver.HTTPMaxBodySize,
+				"buffer_size":          cfg.Receiver.BufferSize,
+				"max_connections":      cfg.Receiver.MaxConnections,
+				"file_watcher_enabled": cfg.Receiver.FileWatcherEnabled,
+				"watch_paths":          cfg.Receiver.WatchPaths,
 			},
 			"storage": cfg.Storage,
 		},
-		"processor": stats,
-		"timestamp": time.Now(),
+		"processor":  stats,
+		"alerts":     alerts,
+		"statistics": storageStats,
+		"timestamp":  time.Now(),
 	})
 }
 
@@ -743,6 +770,34 @@ func (s *Server) stopReceiver(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func buildAlertSummaries(stats *models.Statistics, cfg config.AlertConfig) []gin.H {
+	if stats == nil {
+		return []gin.H{}
+	}
+
+	alerts := make([]gin.H, 0, 2)
+	if cfg.SlowThreshold > 0 && stats.AvgResponseTime >= float64(cfg.SlowThreshold) {
+		alerts = append(alerts, gin.H{
+			"level":   "warning",
+			"title":   "平均响应时间过高",
+			"message": fmt.Sprintf("当前平均响应时间 %.0fms，已达到告警阈值 %dms。", stats.AvgResponseTime, cfg.SlowThreshold),
+		})
+	}
+
+	if cfg.ErrorRateThreshold > 0 && stats.TotalCount > 0 {
+		errorRate := float64(stats.ErrorCount) / float64(stats.TotalCount) * 100
+		if errorRate >= float64(cfg.ErrorRateThreshold) {
+			alerts = append(alerts, gin.H{
+				"level":   "error",
+				"title":   "错误率过高",
+				"message": fmt.Sprintf("当前错误率 %.1f%%，已达到告警阈值 %d%%。", errorRate, cfg.ErrorRateThreshold),
+			})
+		}
+	}
+
+	return alerts
 }
 
 // customLoggerConfig 返回自定义的 Gin Logger 配置，添加简短描述
@@ -1350,6 +1405,7 @@ func (s *Server) importLogsFast(c *gin.Context) {
 	}
 
 	s.updateImportProgress(importID, 0, 0, 0, 0, targetLines, limitReached, "processing", "")
+	s.setImportProgressDetectedFormat(importID, detectedFormat)
 	log.Printf("[IMPORT] 预扫描完成: target=%d, limit_reached=%v, format=%s", targetLines, limitReached, detectedFormat)
 
 	sourceFile, err = os.Open(tempPath)
@@ -1464,16 +1520,17 @@ func (s *Server) importLogsFast(c *gin.Context) {
 		file.Filename, totalLines, acceptedCount, actualImported, droppedCount, detectedFormat)
 
 	c.JSON(http.StatusOK, gin.H{
-		"import_id":     importID,
-		"status":        responseStatus,
-		"lines":         totalLines,
-		"accepted":      acceptedCount,
-		"imported":      actualImported,
-		"dropped":       droppedCount,
-		"max_lines":     maxImportLines,
-		"limit_reached": limitReached,
-		"file":          file.Filename,
-		"warning":       warningMsg,
+		"import_id":       importID,
+		"status":          responseStatus,
+		"lines":           totalLines,
+		"accepted":        acceptedCount,
+		"imported":        actualImported,
+		"dropped":         droppedCount,
+		"max_lines":       maxImportLines,
+		"limit_reached":   limitReached,
+		"file":            file.Filename,
+		"detected_format": detectedFormat,
+		"warning":         warningMsg,
 	})
 }
 
@@ -1532,6 +1589,19 @@ func (s *Server) updateImportProgress(id string, parsed, written, skipped, scann
 	if message != "" {
 		progress.Message = message
 	}
+	progress.UpdatedAt = time.Now()
+}
+
+func (s *Server) setImportProgressDetectedFormat(id, detectedFormat string) {
+	s.importProgressMu.Lock()
+	defer s.importProgressMu.Unlock()
+
+	progress, ok := s.importProgress[id]
+	if !ok {
+		return
+	}
+
+	progress.DetectedFormat = detectedFormat
 	progress.UpdatedAt = time.Now()
 }
 

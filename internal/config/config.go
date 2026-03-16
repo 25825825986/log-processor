@@ -169,7 +169,13 @@ func (c *Config) Update(newConfig *Config) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	normalizeParserConfig(&newConfig.Parser)
 	normalizeProcessorConfig(&newConfig.Processor)
+	normalizeAlertConfig(&newConfig.Alert)
+	normalizeDisplayConfig(&newConfig.Display)
+	normalizeImportConfig(&newConfig.Import)
+	normalizeStorageConfig(&newConfig.Storage)
+	normalizeReceiverConfig(&newConfig.Receiver)
 
 	c.Server = newConfig.Server
 	c.Parser = newConfig.Parser
@@ -232,9 +238,21 @@ func (c *Config) LoadFromFile(path string) error {
 	if !hasProcessorField(data, "overflow_enabled") {
 		newConfig.Processor.OverflowEnabled = true
 	}
+	normalizeParserConfig(&newConfig.Parser)
 	normalizeProcessorConfig(&newConfig.Processor)
+	normalizeAlertConfig(&newConfig.Alert)
+	normalizeDisplayConfig(&newConfig.Display)
+	normalizeImportConfig(&newConfig.Import)
+	normalizeStorageConfig(&newConfig.Storage)
+	normalizeReceiverConfig(&newConfig.Receiver)
 
 	return c.Update(&newConfig)
+}
+
+func normalizeParserConfig(cfg *ParserConfig) {
+	if cfg.Format == "" {
+		cfg.Format = "auto"
+	}
 }
 
 func normalizeProcessorConfig(cfg *ProcessorConfig) {
@@ -258,6 +276,69 @@ func normalizeProcessorConfig(cfg *ProcessorConfig) {
 	}
 	if cfg.OverflowDrainIntervalMS <= 0 {
 		cfg.OverflowDrainIntervalMS = 200
+	}
+}
+
+func normalizeAlertConfig(cfg *AlertConfig) {
+	if cfg.SlowThreshold < 0 {
+		cfg.SlowThreshold = 1000
+	}
+	if cfg.ErrorRateThreshold < 0 {
+		cfg.ErrorRateThreshold = 5
+	}
+}
+
+func normalizeDisplayConfig(cfg *DisplayConfig) {
+	if cfg.PageSize <= 0 {
+		cfg.PageSize = 50
+	}
+	if cfg.RefreshInterval < 0 {
+		cfg.RefreshInterval = 10
+	}
+	if len(cfg.Columns) == 0 {
+		cfg.Columns = []string{"timestamp", "method", "path", "status_code", "response_time", "client_ip"}
+	}
+}
+
+func normalizeImportConfig(cfg *ImportConfig) {
+	if cfg.Concurrency <= 0 {
+		cfg.Concurrency = 1
+	}
+	if cfg.MaxLines <= 0 || cfg.MaxLines > 100000 {
+		cfg.MaxLines = 100000
+	}
+}
+
+func normalizeStorageConfig(cfg *StorageConfig) {
+	if cfg.Type == "" {
+		cfg.Type = "sqlite"
+	}
+	if cfg.DBPath == "" {
+		cfg.DBPath = "./data/logs.db"
+	}
+	if cfg.RetentionHours <= 0 {
+		cfg.RetentionHours = 168
+	}
+	if cfg.MaxMemoryItems <= 0 {
+		cfg.MaxMemoryItems = 100000
+	}
+}
+
+func normalizeReceiverConfig(cfg *ReceiverConfig) {
+	if cfg.TCPPort <= 0 {
+		cfg.TCPPort = 9000
+	}
+	if cfg.UDPPort <= 0 {
+		cfg.UDPPort = 9001
+	}
+	if cfg.HTTPPort <= 0 {
+		cfg.HTTPPort = 9002
+	}
+	if cfg.BufferSize <= 0 {
+		cfg.BufferSize = 8192
+	}
+	if cfg.MaxConnections <= 0 {
+		cfg.MaxConnections = 1000
 	}
 }
 
