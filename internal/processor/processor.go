@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+const (
+	defaultOverflowDrainBatch      = 1000
+	defaultOverflowDrainIntervalMS = 200
+)
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -22,8 +27,9 @@ func min(a, b int) int {
 type ProcessorStats struct {
 	ReceivedCount   int64 // 接收总数
 	ProcessedCount  int64 // 处理成功数
-	DroppedCount    int64 // 丢弃数（队列满）
+	DroppedCount    int64 // 丢弃数（内存队列满且溢写失败）
 	ParseErrorCount int64 // 解析错误数
+	SpillCount      int64 // 成功溢写到磁盘的条数
 }
 
 // Processor 数据处理器
@@ -32,6 +38,7 @@ type Processor struct {
 	inputChan      chan string
 	outputChan     chan *models.LogEntry
 	workerStopChan chan struct{}
+	overflow       *DiskOverflowQueue
 	parser         Parser
 	storage        Storage
 	wg             sync.WaitGroup
@@ -56,8 +63,7 @@ type Storage interface {
 func NewProcessor(cfg config.ProcessorConfig, parser Parser, storage Storage) *Processor {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 队列容量基于BatchSize计算，确保足够的缓冲空间应对突发流量
-	// 容量 = BatchSize * 200，最小100,000，最大500,000
+	// 队列容量基于 BatchSize 计算，确保突发流量下有足够缓冲
 	queueSize := cfg.BatchSize * 200
 	if queueSize < 100000 {
 		queueSize = 100000
@@ -77,6 +83,7 @@ func NewProcessor(cfg config.ProcessorConfig, parser Parser, storage Storage) *P
 		cancel:         cancel,
 	}
 
+	p.initOverflowQueue(cfg)
 	return p
 }
 
@@ -84,14 +91,16 @@ func NewProcessor(cfg config.ProcessorConfig, parser Parser, storage Storage) *P
 func (p *Processor) Start() {
 	cfg := p.getConfigSnapshot()
 
-	// 启动工作协程
 	for i := 0; i < cfg.WorkerCount; i++ {
 		p.startWorker(i)
 	}
 
-	// 启动批处理协程
 	p.wg.Add(1)
 	go p.batchProcessor()
+
+	// 启动磁盘溢写回灌协程（只有开启时才会实际回灌）
+	p.wg.Add(1)
+	go p.overflowDrainer()
 
 	log.Printf("Processor started with %d workers", cfg.WorkerCount)
 }
@@ -99,13 +108,15 @@ func (p *Processor) Start() {
 // Stop 停止处理器
 func (p *Processor) Stop() {
 	p.mu.Lock()
+	if p.stopped {
+		p.mu.Unlock()
+		return
+	}
 	p.stopped = true
 	p.mu.Unlock()
 
 	p.cancel()
-	close(p.inputChan)
 
-	// 使用超时等待，避免永久卡住
 	done := make(chan struct{})
 	go func() {
 		p.wg.Wait()
@@ -114,12 +125,10 @@ func (p *Processor) Stop() {
 
 	select {
 	case <-done:
-		// 正常完成
 	case <-time.After(5 * time.Second):
-		log.Println("[WARN] 处理器停止超时，强制关闭")
+		log.Println("[WARN] 处理器停止超时，部分后台协程可能仍在退出中")
 	}
 
-	close(p.outputChan)
 	log.Println("Processor stopped")
 }
 
@@ -138,14 +147,19 @@ func (p *Processor) Submit(line string) bool {
 	case p.inputChan <- line:
 		return true
 	default:
-		// 队列满，记录警告日志（每1000条丢弃记录一次，避免日志风暴）
+		// 内存队列满时优先尝试磁盘溢写
+		if p.trySpill(line) {
+			return true
+		}
+
 		if rand.Intn(1000) == 0 {
 			p.mu.RLock()
 			dropped := p.stats.DroppedCount
 			p.mu.RUnlock()
-			log.Printf("[WARN] Processor input queue full (%d/%d), total dropped ~%d logs",
+			log.Printf("[WARN] Processor input queue full (%d/%d), dropped ~%d",
 				len(p.inputChan), cap(p.inputChan), dropped)
 		}
+
 		p.mu.Lock()
 		p.stats.DroppedCount++
 		p.mu.Unlock()
@@ -162,17 +176,24 @@ func (p *Processor) worker(id int) {
 		case <-p.workerStopChan:
 			log.Printf("Processor worker %d stopped by config update", id)
 			return
+		case <-p.ctx.Done():
+			// 退出前尽量消费输入队列中已经到达的数据
+			for {
+				select {
+				case line, ok := <-p.inputChan:
+					if !ok {
+						return
+					}
+					p.processLine(line)
+				default:
+					return
+				}
+			}
 		case line, ok := <-p.inputChan:
 			if !ok {
 				return
 			}
 			p.processLine(line)
-		case <-p.ctx.Done():
-			// 处理剩余数据
-			for line := range p.inputChan {
-				p.processLine(line)
-			}
-			return
 		}
 	}
 }
@@ -183,9 +204,7 @@ func (p *Processor) processLine(line string) {
 	p.stats.ReceivedCount++
 	p.mu.Unlock()
 
-	// 解析
-	parser := p.getParser()
-	entry, err := parser.Parse(line)
+	entry, err := p.getParser().Parse(line)
 	if err != nil {
 		p.mu.Lock()
 		p.stats.ParseErrorCount++
@@ -194,7 +213,6 @@ func (p *Processor) processLine(line string) {
 		return
 	}
 
-	// 输出
 	select {
 	case p.outputChan <- entry:
 		p.mu.Lock()
@@ -274,10 +292,11 @@ func (p *Processor) batchProcessor() {
 
 	for {
 		cfg = p.getConfigSnapshot()
-		batchLimit := cfg.BatchSize
-		if batchLimit <= 0 {
-			batchLimit = 1
+		limit := cfg.BatchSize
+		if limit <= 0 {
+			limit = 1
 		}
+
 		timeout := cfg.BatchTimeout
 		if timeout <= 0 {
 			timeout = 1000
@@ -288,36 +307,40 @@ func (p *Processor) batchProcessor() {
 		}
 
 		select {
-		case entry, ok := <-p.outputChan:
-			if !ok {
-				if len(batch) > 0 {
-					p.saveBatch(batch)
+		case <-p.ctx.Done():
+			// 退出前尽量把输出队列中已经产生的数据刷盘
+			for {
+				select {
+				case entry := <-p.outputChan:
+					if entry == nil {
+						continue
+					}
+					batch = append(batch, entry)
+					if len(batch) >= limit {
+						p.saveBatch(batch)
+						batch = make([]*models.LogEntry, 0, limit)
+					}
+				default:
+					if len(batch) > 0 {
+						p.saveBatch(batch)
+					}
+					return
 				}
-				return
+			}
+		case entry := <-p.outputChan:
+			if entry == nil {
+				continue
 			}
 			batch = append(batch, entry)
-			if len(batch) >= batchLimit {
+			if len(batch) >= limit {
 				p.saveBatch(batch)
-				batch = make([]*models.LogEntry, 0, batchLimit)
+				batch = make([]*models.LogEntry, 0, limit)
 			}
 		case <-ticker.C:
 			if len(batch) > 0 {
 				p.saveBatch(batch)
-				batch = make([]*models.LogEntry, 0, batchLimit)
+				batch = make([]*models.LogEntry, 0, limit)
 			}
-		case <-p.ctx.Done():
-			// 处理剩余数据
-			for entry := range p.outputChan {
-				batch = append(batch, entry)
-				if len(batch) >= batchLimit {
-					p.saveBatch(batch)
-					batch = make([]*models.LogEntry, 0, batchLimit)
-				}
-			}
-			if len(batch) > 0 {
-				p.saveBatch(batch)
-			}
-			return
 		}
 	}
 }
@@ -340,6 +363,30 @@ func (p *Processor) UpdateConfig(cfg config.ProcessorConfig) {
 	if cfg.BatchTimeout < 1 {
 		cfg.BatchTimeout = 1
 	}
+	if cfg.OverflowDrainBatch < 1 {
+		cfg.OverflowDrainBatch = defaultOverflowDrainBatch
+	}
+	if cfg.OverflowDrainIntervalMS < 1 {
+		cfg.OverflowDrainIntervalMS = defaultOverflowDrainIntervalMS
+	}
+	if cfg.OverflowDir == "" {
+		cfg.OverflowDir = defaultOverflowDir
+	}
+	if cfg.OverflowMaxDiskMB < 1 {
+		cfg.OverflowMaxDiskMB = defaultOverflowMaxDiskM
+	}
+
+	var createdOverflow *DiskOverflowQueue
+	var createErr error
+
+	if cfg.OverflowEnabled {
+		p.mu.RLock()
+		needCreate := p.overflow == nil
+		p.mu.RUnlock()
+		if needCreate {
+			createdOverflow, createErr = NewDiskOverflowQueue(cfg.OverflowDir, cfg.OverflowMaxDiskMB)
+		}
+	}
 
 	p.mu.Lock()
 	if p.stopped {
@@ -347,6 +394,20 @@ func (p *Processor) UpdateConfig(cfg config.ProcessorConfig) {
 		p.mu.Unlock()
 		return
 	}
+
+	if cfg.OverflowEnabled && p.overflow == nil {
+		if createErr != nil {
+			log.Printf("[WARN] failed to create overflow queue: %v", createErr)
+			cfg.OverflowEnabled = false
+		} else if createdOverflow != nil {
+			p.overflow = createdOverflow
+		}
+	}
+
+	if p.overflow != nil {
+		p.overflow.SetMaxDiskMB(cfg.OverflowMaxDiskMB)
+	}
+
 	oldWorkerCount := p.config.WorkerCount
 	p.config = cfg
 	p.mu.Unlock()
@@ -390,18 +451,140 @@ func (p *Processor) getParser() Parser {
 	return p.parser
 }
 
+func (p *Processor) getOverflow() *DiskOverflowQueue {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.overflow
+}
+
+func (p *Processor) initOverflowQueue(cfg config.ProcessorConfig) {
+	if !cfg.OverflowEnabled {
+		return
+	}
+
+	overflow, err := NewDiskOverflowQueue(cfg.OverflowDir, cfg.OverflowMaxDiskMB)
+	if err != nil {
+		log.Printf("[WARN] overflow queue disabled: %v", err)
+		return
+	}
+	p.overflow = overflow
+}
+
+func (p *Processor) trySpill(line string) bool {
+	cfg := p.getConfigSnapshot()
+	if !cfg.OverflowEnabled {
+		return false
+	}
+
+	overflow := p.getOverflow()
+	if overflow == nil {
+		return false
+	}
+
+	if overflow.Enqueue(line) {
+		p.mu.Lock()
+		p.stats.SpillCount++
+		p.mu.Unlock()
+		return true
+	}
+	return false
+}
+
+func (p *Processor) overflowDrainer() {
+	defer p.wg.Done()
+
+	cfg := p.getConfigSnapshot()
+	intervalMS := cfg.OverflowDrainIntervalMS
+	if intervalMS < 1 {
+		intervalMS = defaultOverflowDrainIntervalMS
+	}
+	ticker := time.NewTicker(time.Duration(intervalMS) * time.Millisecond)
+	defer ticker.Stop()
+
+	currentInterval := intervalMS
+	for {
+		cfg = p.getConfigSnapshot()
+		intervalMS = cfg.OverflowDrainIntervalMS
+		if intervalMS < 1 {
+			intervalMS = defaultOverflowDrainIntervalMS
+		}
+		if intervalMS != currentInterval {
+			ticker.Reset(time.Duration(intervalMS) * time.Millisecond)
+			currentInterval = intervalMS
+		}
+
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			if !cfg.OverflowEnabled {
+				continue
+			}
+			overflow := p.getOverflow()
+			if overflow == nil {
+				continue
+			}
+
+			batch := cfg.OverflowDrainBatch
+			if batch < 1 {
+				batch = defaultOverflowDrainBatch
+			}
+
+			recovered := overflow.Drain(batch, func(line string) bool {
+				select {
+				case p.inputChan <- line:
+					return true
+				default:
+					return false
+				}
+			})
+
+			if recovered > 0 && rand.Intn(200) == 0 {
+				stats := overflow.Stats()
+				log.Printf("[INFO] overflow drained=%d pending=%d file=%dB",
+					recovered, stats.PendingCount, stats.FileSizeBytes)
+			}
+		}
+	}
+}
+
 // GetStats 获取处理统计
 func (p *Processor) GetStats() map[string]interface{} {
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return map[string]interface{}{
+	stats := p.stats
+	cfg := p.config
+	p.mu.RUnlock()
+
+	result := map[string]interface{}{
 		"input_queue_size":  len(p.inputChan),
 		"output_queue_size": len(p.outputChan),
-		"worker_count":      p.config.WorkerCount,
-		"batch_size":        p.config.BatchSize,
-		"received_count":    p.stats.ReceivedCount,
-		"processed_count":   p.stats.ProcessedCount,
-		"dropped_count":     p.stats.DroppedCount,
-		"parse_error_count": p.stats.ParseErrorCount,
+		"worker_count":      cfg.WorkerCount,
+		"batch_size":        cfg.BatchSize,
+		"received_count":    stats.ReceivedCount,
+		"processed_count":   stats.ProcessedCount,
+		"dropped_count":     stats.DroppedCount,
+		"parse_error_count": stats.ParseErrorCount,
+		"spill_count":       stats.SpillCount,
+		"overflow_enabled":  cfg.OverflowEnabled,
 	}
+
+	overflow := p.getOverflow()
+	if overflow == nil {
+		result["overflow_queue_pending"] = int64(0)
+		result["overflow_file_size_bytes"] = int64(0)
+		result["overflow_enqueued_count"] = int64(0)
+		result["overflow_recovered_count"] = int64(0)
+		result["overflow_dropped_count"] = int64(0)
+		result["overflow_write_error_count"] = int64(0)
+		return result
+	}
+
+	ov := overflow.Stats()
+	result["overflow_queue_pending"] = ov.PendingCount
+	result["overflow_file_size_bytes"] = ov.FileSizeBytes
+	result["overflow_enqueued_count"] = ov.EnqueuedCount
+	result["overflow_recovered_count"] = ov.RecoveredCount
+	result["overflow_dropped_count"] = ov.DroppedCount
+	result["overflow_write_error_count"] = ov.WriteErrorCount
+	return result
 }

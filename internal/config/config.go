@@ -12,29 +12,14 @@ import (
 type Config struct {
 	mu sync.RWMutex
 
-	// 服务器配置
-	Server ServerConfig `json:"server"`
-
-	// 解析配置
-	Parser ParserConfig `json:"parser"`
-
-	// 处理器配置
+	Server    ServerConfig    `json:"server"`
+	Parser    ParserConfig    `json:"parser"`
 	Processor ProcessorConfig `json:"processor"`
-
-	// 告警配置
-	Alert AlertConfig `json:"alert"`
-
-	// 显示配置
-	Display DisplayConfig `json:"display"`
-
-	// 导入配置
-	Import ImportConfig `json:"import"`
-
-	// 存储配置
-	Storage StorageConfig `json:"storage"`
-
-	// 接收器配置
-	Receiver ReceiverConfig `json:"receiver"`
+	Alert     AlertConfig     `json:"alert"`
+	Display   DisplayConfig   `json:"display"`
+	Import    ImportConfig    `json:"import"`
+	Storage   StorageConfig   `json:"storage"`
+	Receiver  ReceiverConfig  `json:"receiver"`
 }
 
 // ServerConfig 服务器配置
@@ -43,7 +28,7 @@ type ServerConfig struct {
 	Port int    `json:"port"`
 }
 
-// ParserConfig 解析配置 - 系统自动识别格式，无需手动配置
+// ParserConfig 解析配置
 type ParserConfig struct {
 	// 格式自动识别，固定为 auto
 	Format string `json:"format"`
@@ -51,90 +36,65 @@ type ParserConfig struct {
 
 // ProcessorConfig 处理器配置
 type ProcessorConfig struct {
-	// 工作协程数
-	WorkerCount int `json:"worker_count"`
-
-	// 批处理大小
-	BatchSize int `json:"batch_size"`
-
-	// 批处理超时（毫秒）
+	WorkerCount  int `json:"worker_count"`
+	BatchSize    int `json:"batch_size"`
 	BatchTimeout int `json:"batch_timeout"`
+
+	// 磁盘溢写配置
+	OverflowEnabled         bool   `json:"overflow_enabled"`
+	OverflowDir             string `json:"overflow_dir,omitempty"`
+	OverflowMaxDiskMB       int    `json:"overflow_max_disk_mb,omitempty"`
+	OverflowDrainBatch      int    `json:"overflow_drain_batch,omitempty"`
+	OverflowDrainIntervalMS int    `json:"overflow_drain_interval_ms,omitempty"`
 }
 
 // AlertConfig 告警配置
 type AlertConfig struct {
-	// 慢请求阈值（毫秒）
-	SlowThreshold int `json:"slow_threshold"`
-
-	// 错误率阈值（百分比）
+	SlowThreshold      int `json:"slow_threshold"`
 	ErrorRateThreshold int `json:"error_rate_threshold"`
 }
 
 // DisplayConfig 显示配置
 type DisplayConfig struct {
-	// 每页显示条数
-	PageSize int `json:"page_size"`
-
-	// 自动刷新间隔（秒，0表示关闭）
-	RefreshInterval int `json:"refresh_interval"`
-
-	// 显示的列
-	Columns []string `json:"columns"`
+	PageSize        int      `json:"page_size"`
+	RefreshInterval int      `json:"refresh_interval"`
+	Columns         []string `json:"columns"`
 }
 
 // ImportConfig 导入配置
 type ImportConfig struct {
-	// 并发数
 	Concurrency int `json:"concurrency"`
-
-	// 单文件最大行数
-	MaxLines int `json:"max_lines"`
+	MaxLines    int `json:"max_lines"`
 }
 
 // StorageConfig 存储配置
 type StorageConfig struct {
-	// 存储类型：memory, sqlite
-	Type string `json:"type"`
-
-	// SQLite数据库路径
-	DBPath string `json:"db_path,omitempty"`
-
-	// 内存存储最大条目数
-	MaxMemoryItems int `json:"max_memory_items,omitempty"`
-
-	// 数据保留时间（小时）
-	RetentionHours int `json:"retention_hours"`
+	Type           string `json:"type"`
+	DBPath         string `json:"db_path,omitempty"`
+	MaxMemoryItems int    `json:"max_memory_items,omitempty"`
+	RetentionHours int    `json:"retention_hours"`
 }
 
 // ReceiverConfig 接收器配置
 type ReceiverConfig struct {
-	// TCP接收配置
 	TCPEnabled bool `json:"tcp_enabled"`
 	TCPPort    int  `json:"tcp_port"`
 
-	// UDP接收配置
 	UDPEnabled bool `json:"udp_enabled"`
 	UDPPort    int  `json:"udp_port"`
 
-	// HTTP接收配置
 	HTTPEnabled bool `json:"http_enabled"`
 	HTTPPort    int  `json:"http_port"`
 
-	// HTTP安全认证配置
-	HTTPAuthToken    string   `json:"http_auth_token,omitempty"`    // 认证Token，为空则不启用
-	HTTPAllowedIPs   []string `json:"http_allowed_ips,omitempty"`   // IP白名单，为空则不限制
-	HTTPMaxBodySize  int64    `json:"http_max_body_size,omitempty"` // 最大请求体大小(字节)，默认10MB
-	HTTPRateLimit    int      `json:"http_rate_limit,omitempty"`    // 每分钟最大请求数，0为不限制
+	HTTPAuthToken   string   `json:"http_auth_token,omitempty"`
+	HTTPAllowedIPs  []string `json:"http_allowed_ips,omitempty"`
+	HTTPMaxBodySize int64    `json:"http_max_body_size,omitempty"`
+	HTTPRateLimit   int      `json:"http_rate_limit,omitempty"`
 
-	// 文件监控配置
 	FileWatcherEnabled bool     `json:"file_watcher_enabled"`
 	WatchPaths         []string `json:"watch_paths,omitempty"`
-
-	// 最大连接数
-	MaxConnections int `json:"max_connections"`
-
-	// 接收缓冲区大小
-	BufferSize int `json:"buffer_size"`
+	MaxConnections     int      `json:"max_connections"`
+	BufferSize         int      `json:"buffer_size"`
 }
 
 var (
@@ -158,12 +118,17 @@ func loadDefaultConfig() *Config {
 			Port: 8080,
 		},
 		Parser: ParserConfig{
-			Format: "auto", // 系统自动识别日志格式
+			Format: "auto",
 		},
 		Processor: ProcessorConfig{
-			WorkerCount:  10,
-			BatchSize:    500,
-			BatchTimeout: 1000,
+			WorkerCount:             10,
+			BatchSize:               500,
+			BatchTimeout:            1000,
+			OverflowEnabled:         true,
+			OverflowDir:             "./data/overflow",
+			OverflowMaxDiskMB:       512,
+			OverflowDrainBatch:      1000,
+			OverflowDrainIntervalMS: 200,
 		},
 		Alert: AlertConfig{
 			SlowThreshold:      1000,
@@ -182,7 +147,7 @@ func loadDefaultConfig() *Config {
 			Type:           "sqlite",
 			DBPath:         "./data/logs.db",
 			MaxMemoryItems: 100000,
-			RetentionHours: 168, // 7天
+			RetentionHours: 168,
 		},
 		Receiver: ReceiverConfig{
 			TCPEnabled:         true,
@@ -199,12 +164,12 @@ func loadDefaultConfig() *Config {
 	}
 }
 
-
-
 // Update 更新配置
 func (c *Config) Update(newConfig *Config) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	normalizeProcessorConfig(&newConfig.Processor)
 
 	c.Server = newConfig.Server
 	c.Parser = newConfig.Parser
@@ -244,8 +209,7 @@ func (c *Config) SaveToFile(path string) error {
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o644)
 }
 
 // LoadFromFile 从文件加载配置
@@ -264,7 +228,57 @@ func (c *Config) LoadFromFile(path string) error {
 		return err
 	}
 
+	// 兼容旧配置：如果没有该字段，默认开启溢写。
+	if !hasProcessorField(data, "overflow_enabled") {
+		newConfig.Processor.OverflowEnabled = true
+	}
+	normalizeProcessorConfig(&newConfig.Processor)
+
 	return c.Update(&newConfig)
+}
+
+func normalizeProcessorConfig(cfg *ProcessorConfig) {
+	if cfg.WorkerCount <= 0 {
+		cfg.WorkerCount = 10
+	}
+	if cfg.BatchSize <= 0 {
+		cfg.BatchSize = 500
+	}
+	if cfg.BatchTimeout <= 0 {
+		cfg.BatchTimeout = 1000
+	}
+	if cfg.OverflowDir == "" {
+		cfg.OverflowDir = "./data/overflow"
+	}
+	if cfg.OverflowMaxDiskMB <= 0 {
+		cfg.OverflowMaxDiskMB = 512
+	}
+	if cfg.OverflowDrainBatch <= 0 {
+		cfg.OverflowDrainBatch = 1000
+	}
+	if cfg.OverflowDrainIntervalMS <= 0 {
+		cfg.OverflowDrainIntervalMS = 200
+	}
+}
+
+func hasProcessorField(raw []byte, field string) bool {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return false
+	}
+
+	processorRaw, ok := root["processor"]
+	if !ok {
+		return false
+	}
+
+	var processorMap map[string]json.RawMessage
+	if err := json.Unmarshal(processorRaw, &processorMap); err != nil {
+		return false
+	}
+
+	_, exists := processorMap[field]
+	return exists
 }
 
 // GetParserConfig 获取解析配置

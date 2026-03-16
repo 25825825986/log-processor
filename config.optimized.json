@@ -19,6 +19,11 @@
     "worker_count": 20,
     "batch_size": 2000,
     "batch_timeout": 50,
+    "overflow_enabled": true,
+    "overflow_dir": "./data/overflow",
+    "overflow_max_disk_mb": 1024,
+    "overflow_drain_batch": 2000,
+    "overflow_drain_interval_ms": 100,
     "clean_rules": [],
     "filter_rules": []
   },

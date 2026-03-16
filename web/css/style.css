@@ -1942,6 +1942,102 @@ input:checked + .slider:before {
    导入页面样式
    ============================================ */
 
+.import-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(280px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.import-main,
+.import-side {
+  min-width: 0;
+}
+
+.import-uploader-card {
+  background: linear-gradient(180deg, rgba(24, 144, 255, 0.04) 0%, rgba(24, 144, 255, 0) 100%);
+  border-radius: var(--radius-lg);
+  padding: 2px 0 8px;
+}
+
+.import-meta-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  border-bottom: none;
+  margin-top: -8px;
+  padding-bottom: 8px;
+}
+
+.import-meta-item {
+  padding: 16px 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+}
+
+.import-meta-label {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+
+.import-meta-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.import-meta-value.success {
+  color: var(--success);
+}
+
+.import-meta-value.error {
+  color: var(--error);
+}
+
+.import-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.import-side-card {
+  padding: 20px 22px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+}
+
+.import-checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.import-checklist li {
+  position: relative;
+  padding-left: 22px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.import-checklist li::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
 .import-section {
   margin-bottom: 32px;
   padding-bottom: 32px;
@@ -2181,6 +2277,24 @@ input:checked + .slider:before {
 /* ============================================
    导出页面样式
    ============================================ */
+
+.export-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(300px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.export-main,
+.export-side {
+  min-width: 0;
+}
+
+.export-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 
 .export-section {
   margin-bottom: 32px;
@@ -2450,7 +2564,69 @@ input:checked + .slider:before {
   font-size: 18px;
 }
 
+.export-preview-shell {
+  padding-bottom: 24px;
+  margin-bottom: 0;
+}
+
+.export-preview-shell .export-preview {
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.export-side-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid #BAE7FF;
+  background: #E6F7FF;
+  color: #0050B3;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.export-side-note i {
+  margin-top: 2px;
+}
+
 /* 已选筛选条件 */
+@media (max-width: 1024px) {
+  .import-layout,
+  .export-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .upload-zone {
+    padding: 40px 24px;
+  }
+
+  .import-meta-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .export-format-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .datetime-range {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .datetime-separator {
+    display: none;
+  }
+
+  .btn-export {
+    width: 100%;
+  }
+}
+
 .active-filters {
   display: flex;
   align-items: center;
@@ -3100,7 +3276,7 @@ input:checked + .slider:before {
 
 .status-cards {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 12px;
 }
 
@@ -3195,6 +3371,12 @@ input:checked + .slider:before {
     padding: 4px 10px;
     background: rgba(255,255,255,0.8);
     border-radius: 20px;
+}
+
+@media (max-width: 768px) {
+    .status-cards {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* ============================================

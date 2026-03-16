@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,16 +34,19 @@ func min(a, b int) int {
 
 // Server Web服务器
 type Server struct {
-	config          *config.Config
-	configPath      string
-	router          *gin.Engine
-	storage         storage.Storage
-	parser          *parser.LogParser
-	processor       *processor.Processor
-	receiver        *receiver.Manager
-	exportManager   *exporter.ExportManager
-	runtimeMu       sync.Mutex
-	receiverRunning bool
+	config           *config.Config
+	configPath       string
+	router           *gin.Engine
+	storage          storage.Storage
+	parser           *parser.LogParser
+	processor        *processor.Processor
+	receiver         *receiver.Manager
+	exportManager    *exporter.ExportManager
+	runtimeMu        sync.Mutex
+	receiverRunning  bool
+	benchmarkMu      sync.Mutex
+	benchmarkRunning bool
+	lastBenchmark    map[string]interface{}
 }
 
 // NewServer 创建新服务器
@@ -94,6 +98,7 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "index.html", nil)
 	})
+	s.router.GET("/metrics", s.getMetrics)
 
 	// API路由组
 	api := s.router.Group("/api")
@@ -125,6 +130,8 @@ func (s *Server) setupRoutes() {
 		// 存储管理
 		api.GET("/storage/info", s.getStorageInfo)
 		api.POST("/storage/compact", s.compactStorage)
+		api.POST("/benchmark/run", s.runBenchmark)
+		api.GET("/benchmark/report", s.getBenchmarkReport)
 	}
 }
 
@@ -909,6 +916,297 @@ func (s *Server) compactStorage(c *gin.Context) {
 		"size_after_bytes":  sizeAfter,
 		"freed_bytes":       sizeBefore - sizeAfter,
 	})
+}
+
+// getMetrics 导出 Prometheus 文本指标
+func (s *Server) getMetrics(c *gin.Context) {
+	stats := s.processor.GetStats()
+	cfg := s.config.Get()
+
+	var b strings.Builder
+	writePromMetric(&b, "log_processor_input_queue_size", float64(asInt64(stats["input_queue_size"])))
+	writePromMetric(&b, "log_processor_output_queue_size", float64(asInt64(stats["output_queue_size"])))
+	writePromMetric(&b, "log_processor_worker_count", float64(asInt64(stats["worker_count"])))
+	writePromMetric(&b, "log_processor_batch_size", float64(asInt64(stats["batch_size"])))
+	writePromMetric(&b, "log_processor_received_total", float64(asInt64(stats["received_count"])))
+	writePromMetric(&b, "log_processor_processed_total", float64(asInt64(stats["processed_count"])))
+	writePromMetric(&b, "log_processor_dropped_total", float64(asInt64(stats["dropped_count"])))
+	writePromMetric(&b, "log_processor_parse_error_total", float64(asInt64(stats["parse_error_count"])))
+	writePromMetric(&b, "log_processor_spill_total", float64(asInt64(stats["spill_count"])))
+	writePromMetric(&b, "log_processor_overflow_enabled", boolToFloat64(cfg.Processor.OverflowEnabled))
+	writePromMetric(&b, "log_processor_overflow_pending", float64(asInt64(stats["overflow_queue_pending"])))
+	writePromMetric(&b, "log_processor_overflow_file_bytes", float64(asInt64(stats["overflow_file_size_bytes"])))
+	writePromMetric(&b, "log_processor_overflow_enqueued_total", float64(asInt64(stats["overflow_enqueued_count"])))
+	writePromMetric(&b, "log_processor_overflow_recovered_total", float64(asInt64(stats["overflow_recovered_count"])))
+	writePromMetric(&b, "log_processor_overflow_dropped_total", float64(asInt64(stats["overflow_dropped_count"])))
+	writePromMetric(&b, "log_processor_overflow_write_error_total", float64(asInt64(stats["overflow_write_error_count"])))
+
+	s.runtimeMu.Lock()
+	receiverRunning := s.receiverRunning
+	s.runtimeMu.Unlock()
+	writePromMetric(&b, "log_receiver_running", boolToFloat64(receiverRunning))
+
+	if asyncStore, ok := s.storage.(interface {
+		GetStats() storage.AsyncStats
+	}); ok {
+		asyncStats := asyncStore.GetStats()
+		writePromMetric(&b, "log_storage_buffered", float64(asyncStats.BufferedCount))
+		writePromMetric(&b, "log_storage_flushed_total", float64(asyncStats.FlushedCount))
+		writePromMetric(&b, "log_storage_dropped_total", float64(asyncStats.DroppedCount))
+		writePromMetric(&b, "log_storage_avg_flush_latency_ms", float64(asyncStats.AvgFlushLatency))
+	}
+
+	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(b.String()))
+}
+
+type benchmarkRunRequest struct {
+	DurationSeconds int `json:"duration_seconds"`
+	Workers         int `json:"workers"`
+	TargetQPS       int `json:"target_qps"`
+}
+
+// runBenchmark 执行一键压测并返回报告
+func (s *Server) runBenchmark(c *gin.Context) {
+	req := benchmarkRunRequest{
+		DurationSeconds: 10,
+		Workers:         20,
+		TargetQPS:       5000,
+	}
+
+	if c.Request.ContentLength > 0 {
+		var payload benchmarkRunRequest
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid benchmark request: " + err.Error()})
+			return
+		}
+		if payload.DurationSeconds > 0 {
+			req.DurationSeconds = payload.DurationSeconds
+		}
+		if payload.Workers > 0 {
+			req.Workers = payload.Workers
+		}
+		if payload.TargetQPS >= 0 {
+			req.TargetQPS = payload.TargetQPS
+		}
+	}
+
+	if req.DurationSeconds < 3 {
+		req.DurationSeconds = 3
+	}
+	if req.DurationSeconds > 300 {
+		req.DurationSeconds = 300
+	}
+	if req.Workers < 1 {
+		req.Workers = 1
+	}
+	if req.Workers > 200 {
+		req.Workers = 200
+	}
+	if req.TargetQPS < 0 {
+		req.TargetQPS = 0
+	}
+	if req.TargetQPS > 1000000 {
+		req.TargetQPS = 1000000
+	}
+
+	s.benchmarkMu.Lock()
+	if s.benchmarkRunning {
+		s.benchmarkMu.Unlock()
+		c.JSON(http.StatusConflict, gin.H{"error": "benchmark is already running"})
+		return
+	}
+	s.benchmarkRunning = true
+	s.benchmarkMu.Unlock()
+
+	defer func() {
+		s.benchmarkMu.Lock()
+		s.benchmarkRunning = false
+		s.benchmarkMu.Unlock()
+	}()
+
+	beforeTotal, _ := s.storage.Count(models.FilterCondition{})
+	beforeStats := s.processor.GetStats()
+	start := time.Now()
+	deadline := start.Add(time.Duration(req.DurationSeconds) * time.Second)
+
+	var submitted int64
+	var rejected int64
+	var sequence int64
+	var wg sync.WaitGroup
+
+	for workerID := 0; workerID < req.Workers; workerID++ {
+		wg.Add(1)
+		go func(wid int) {
+			defer wg.Done()
+
+			interval := time.Duration(0)
+			if req.TargetQPS > 0 {
+				perWorkerQPS := float64(req.TargetQPS) / float64(req.Workers)
+				if perWorkerQPS < 1 {
+					perWorkerQPS = 1
+				}
+				interval = time.Duration(float64(time.Second) / perWorkerQPS)
+			}
+			nextTick := time.Now()
+
+			for time.Now().Before(deadline) {
+				if interval > 0 {
+					now := time.Now()
+					if nextTick.After(now) {
+						time.Sleep(nextTick.Sub(now))
+					}
+					nextTick = nextTick.Add(interval)
+				}
+
+				id := atomic.AddInt64(&sequence, 1)
+				line := buildBenchmarkLogLine(id, wid)
+				if s.processor.Submit(line) {
+					atomic.AddInt64(&submitted, 1)
+				} else {
+					atomic.AddInt64(&rejected, 1)
+				}
+			}
+		}(workerID)
+	}
+
+	wg.Wait()
+	time.Sleep(2 * time.Second)
+
+	afterTotal, _ := s.storage.Count(models.FilterCondition{})
+	afterStats := s.processor.GetStats()
+
+	storedAdded := afterTotal - beforeTotal
+	if storedAdded < 0 {
+		storedAdded = 0
+	}
+
+	sendDuration := float64(req.DurationSeconds)
+	if sendDuration <= 0 {
+		sendDuration = 1
+	}
+
+	totalSubmitted := atomic.LoadInt64(&submitted)
+	totalRejected := atomic.LoadInt64(&rejected)
+	acceptRate := 0.0
+	if totalSubmitted+totalRejected > 0 {
+		acceptRate = float64(totalSubmitted) / float64(totalSubmitted+totalRejected) * 100
+	}
+
+	report := map[string]interface{}{
+		"started_at":       start.Format(time.RFC3339),
+		"finished_at":      time.Now().Format(time.RFC3339),
+		"duration_seconds": req.DurationSeconds,
+		"workers":          req.Workers,
+		"target_qps":       req.TargetQPS,
+		"submitted":        totalSubmitted,
+		"rejected":         totalRejected,
+		"accept_rate":      acceptRate,
+		"submit_qps":       float64(totalSubmitted) / sendDuration,
+		"stored_added":     storedAdded,
+		"stored_qps":       float64(storedAdded) / sendDuration,
+		"processor_delta": map[string]interface{}{
+			"received_delta":           metricDelta(afterStats, beforeStats, "received_count"),
+			"processed_delta":          metricDelta(afterStats, beforeStats, "processed_count"),
+			"dropped_delta":            metricDelta(afterStats, beforeStats, "dropped_count"),
+			"parse_error_delta":        metricDelta(afterStats, beforeStats, "parse_error_count"),
+			"spill_delta":              metricDelta(afterStats, beforeStats, "spill_count"),
+			"overflow_recovered_delta": metricDelta(afterStats, beforeStats, "overflow_recovered_count"),
+			"overflow_pending":         asInt64(afterStats["overflow_queue_pending"]),
+			"overflow_dropped_delta":   metricDelta(afterStats, beforeStats, "overflow_dropped_count"),
+			"overflow_write_err_delta": metricDelta(afterStats, beforeStats, "overflow_write_error_count"),
+		},
+	}
+
+	s.benchmarkMu.Lock()
+	s.lastBenchmark = report
+	s.benchmarkMu.Unlock()
+
+	c.JSON(http.StatusOK, report)
+}
+
+// getBenchmarkReport 获取最近一次压测报告
+func (s *Server) getBenchmarkReport(c *gin.Context) {
+	s.benchmarkMu.Lock()
+	report := s.lastBenchmark
+	running := s.benchmarkRunning
+	s.benchmarkMu.Unlock()
+
+	if report == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"running": running,
+			"error":   "no benchmark report available",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"running": running,
+		"report":  report,
+	})
+}
+
+func buildBenchmarkLogLine(sequence int64, workerID int) string {
+	timestamp := time.Now().Format("02/Jan/2006:15:04:05 -0700")
+	path := fmt.Sprintf("/benchmark/%d/%d", workerID, sequence%1000)
+	return fmt.Sprintf(
+		`127.0.0.1 - - [%s] "GET %s HTTP/1.1" 200 %d "-" "Benchmark/%d"`,
+		timestamp,
+		path,
+		100+sequence%9000,
+		workerID,
+	)
+}
+
+func writePromMetric(builder *strings.Builder, name string, value float64) {
+	builder.WriteString(name)
+	builder.WriteByte(' ')
+	builder.WriteString(strconv.FormatFloat(value, 'f', -1, 64))
+	builder.WriteByte('\n')
+}
+
+func metricDelta(after map[string]interface{}, before map[string]interface{}, key string) int64 {
+	return asInt64(after[key]) - asInt64(before[key])
+}
+
+func asInt64(value interface{}) int64 {
+	switch v := value.(type) {
+	case int:
+		return int64(v)
+	case int8:
+		return int64(v)
+	case int16:
+		return int64(v)
+	case int32:
+		return int64(v)
+	case int64:
+		return v
+	case uint:
+		return int64(v)
+	case uint8:
+		return int64(v)
+	case uint16:
+		return int64(v)
+	case uint32:
+		return int64(v)
+	case uint64:
+		if v > uint64(^uint64(0)>>1) {
+			return int64(^uint64(0) >> 1)
+		}
+		return int64(v)
+	case float32:
+		return int64(v)
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func boolToFloat64(v bool) float64 {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func mergeConfigSection(payload map[string]interface{}, key string, target interface{}) error {

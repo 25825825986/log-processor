@@ -88,3 +88,14 @@ python convert_log_format.py ../data/test_nginx.log ../data/test_json.log --inpu
 
 详见 `example/TEST_AUDIT.md`。
 
+
+## 一键压测与报告
+
+```bash
+cd example/benchmark
+python run_suite.py --duration 10 --workers 20 --target-qps 5000
+```
+
+默认会在 `example/benchmark/reports/` 下生成：
+- `benchmark_*.json`
+- `benchmark_*.md`

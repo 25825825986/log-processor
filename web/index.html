@@ -553,61 +553,83 @@
 
             <!-- 导入面板 -->
             <section id="import" class="tab-content">
-                <!-- 上传区域 -->
-                <div class="import-section">
-                    <div class="section-title"><i class="fas fa-cloud-upload-alt"></i> 文件上传</div>
-                    
-                    <div class="upload-zone" id="upload-zone">
-                        <div class="upload-icon">
-                            <i class="fas fa-cloud-arrow-up"></i>
+                <div class="import-layout">
+                    <div class="import-main">
+                        <div class="import-section import-uploader-card">
+                            <div class="section-title"><i class="fas fa-cloud-upload-alt"></i> 文件导入</div>
+                            <div class="upload-zone" id="upload-zone">
+                                <div class="upload-icon">
+                                    <i class="fas fa-cloud-arrow-up"></i>
+                                </div>
+                                <div class="upload-text">
+                                    <div class="upload-title">拖拽文件到这里</div>
+                                    <div class="upload-subtitle">或点击选择多个日志文件批量导入</div>
+                                </div>
+                                <div class="upload-formats">
+                                    <span class="format-tag"><i class="fas fa-file-alt"></i> .log</span>
+                                    <span class="format-tag"><i class="fas fa-file-alt"></i> .txt</span>
+                                    <span class="format-tag"><i class="fas fa-file-csv"></i> .csv</span>
+                                    <span class="format-tag"><i class="fas fa-file-code"></i> .json</span>
+                                </div>
+                                <input type="file" id="file-input" accept=".log,.txt,.csv,.json" multiple>
+                            </div>
                         </div>
-                        <div class="upload-text">
-                            <div class="upload-title">拖拽文件到此处</div>
-                            <div class="upload-subtitle">或点击选择文件</div>
+
+                        <div class="import-section import-meta-strip">
+                            <div class="import-meta-item">
+                                <div class="import-meta-label">本次文件数</div>
+                                <div class="import-meta-value" id="import-selected-count">0</div>
+                            </div>
+                            <div class="import-meta-item">
+                                <div class="import-meta-label">成功导入</div>
+                                <div class="import-meta-value success" id="import-success-count">0</div>
+                            </div>
+                            <div class="import-meta-item">
+                                <div class="import-meta-label">失败/跳过</div>
+                                <div class="import-meta-value error" id="import-fail-count">0</div>
+                            </div>
                         </div>
-                        <div class="upload-formats">
-                            <span class="format-tag"><i class="fas fa-file-alt"></i> .log</span>
-                            <span class="format-tag"><i class="fas fa-file-alt"></i> .txt</span>
-                            <span class="format-tag"><i class="fas fa-file-csv"></i> .csv</span>
-                            <span class="format-tag"><i class="fas fa-file-code"></i> .json</span>
+
+                        <div class="import-section" id="upload-progress-section" style="display: none;">
+                            <div class="section-title"><i class="fas fa-spinner fa-spin"></i> 上传进度</div>
+                            <div class="progress-card">
+                                <div class="progress-info">
+                                    <span class="progress-filename" id="progress-filename">filename.log</span>
+                                    <span class="progress-percent" id="progress-percent">0%</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
+                                </div>
+                                <div class="progress-stats">
+                                    <span id="progress-size">0 MB / 0 MB</span>
+                                    <span id="progress-speed">0 MB/s</span>
+                                </div>
+                            </div>
                         </div>
-                        <input type="file" id="file-input" accept=".log,.txt,.csv,.json" multiple>
+
+                        <div class="import-section" id="upload-results-section" style="display: none;">
+                            <div class="section-title"><i class="fas fa-check-circle"></i> 导入结果</div>
+                            <div class="results-list" id="upload-results"></div>
+                        </div>
                     </div>
-                </div>
 
-                <!-- 上传进度 -->
-                <div class="import-section" id="upload-progress-section" style="display: none;">
-                    <div class="section-title"><i class="fas fa-spinner fa-spin"></i> 上传进度</div>
-                    <div class="progress-card">
-                        <div class="progress-info">
-                            <span class="progress-filename" id="progress-filename">filename.log</span>
-                            <span class="progress-percent" id="progress-percent">0%</span>
+                    <div class="import-side">
+                        <div class="import-side-card">
+                            <div class="section-title"><i class="fas fa-list-check"></i> 导入建议</div>
+                            <ul class="import-checklist">
+                                <li>建议按批次导入，每批控制在 10 万行以内。</li>
+                                <li>大文件优先使用 <code>.log/.txt</code>，减少格式转换开销。</li>
+                                <li>导入完成后可在“查询”页按时间范围校验数据。</li>
+                                <li>若出现告警，可在“配置”页调整并发与批处理参数。</li>
+                            </ul>
                         </div>
-                        <div class="progress-bar-bg">
-                            <div class="progress-bar-fill" id="progress-fill" style="width: 0%"></div>
-                        </div>
-                        <div class="progress-stats">
-                            <span id="progress-size">0 MB / 10 MB</span>
-                            <span id="progress-speed">2.5 MB/s</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 上传结果 -->
-                <div class="import-section" id="upload-results-section" style="display: none;">
-                    <div class="section-title"><i class="fas fa-check-circle"></i> 上传结果</div>
-                    <div class="results-list" id="upload-results"></div>
-                </div>
-
-                <!-- 导入说明 -->
-                <div class="import-tips">
-                    <div class="tip-card">
-                        <i class="fas fa-lightbulb"></i>
-                        <div>
-                            <div class="tip-title">导入提示</div>
-                            <div class="tip-content">
-                                支持批量导入多个文件，系统会自动识别格式并解析。
-                                大文件建议分批导入，每批不超过 10万条日志。
+                        <div class="tip-card">
+                            <i class="fas fa-lightbulb"></i>
+                            <div>
+                                <div class="tip-title">导入说明</div>
+                                <div class="tip-content">
+                                    系统会自动识别文件中的日志格式并解析。若格式不兼容，会在结果中给出明确提示。
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -616,128 +638,134 @@
 
             <!-- 导出面板 -->
             <section id="export" class="tab-content">
-                <!-- 格式选择 -->
-                <div class="export-section">
-                    <div class="section-title"><i class="fas fa-file-export"></i> 导出格式</div>
-                    <div class="export-format-cards">
-                        <div class="export-format-card active" data-format="excel" onclick="selectExportFormat('excel')">
-                            <div class="format-icon excel">
-                                <i class="fas fa-file-excel"></i>
-                            </div>
-                            <div class="format-info">
-                                <div class="format-name">Excel</div>
-                                <div class="format-ext">.xlsx</div>
-                            </div>
-                            <div class="format-check"><i class="fas fa-check"></i></div>
-                        </div>
-                        <div class="export-format-card" data-format="csv" onclick="selectExportFormat('csv')">
-                            <div class="format-icon csv">
-                                <i class="fas fa-file-csv"></i>
-                            </div>
-                            <div class="format-info">
-                                <div class="format-name">CSV</div>
-                                <div class="format-ext">.csv</div>
-                            </div>
-                            <div class="format-check"><i class="fas fa-check"></i></div>
-                        </div>
-                        <div class="export-format-card" data-format="json" onclick="selectExportFormat('json')">
-                            <div class="format-icon json">
-                                <i class="fas fa-file-code"></i>
-                            </div>
-                            <div class="format-info">
-                                <div class="format-name">JSON</div>
-                                <div class="format-ext">.json</div>
-                            </div>
-                            <div class="format-check"><i class="fas fa-check"></i></div>
-                        </div>
-                    </div>
-                    <input type="hidden" id="export-format" value="excel">
-                </div>
-
-                <!-- 导出设置 -->
-                <div class="export-section">
-                    <div class="section-title"><i class="fas fa-cog"></i> 导出设置</div>
-                    <div class="export-settings">
-                        <div class="setting-card">
-                            <div class="setting-label">
-                                <i class="fas fa-file-signature"></i>
-                                文件名
-                            </div>
-                            <div class="filename-input">
-                                <input type="text" id="export-filename" class="form-input" value="logs_export" placeholder="输入文件名">
-                                <span class="filename-ext" id="filename-ext">.xlsx</span>
-                            </div>
-                        </div>
-                        
-                        <div class="setting-card">
-                            <div class="setting-label">
-                                <i class="fas fa-calendar-alt"></i>
-                                时间范围
-                            </div>
-                            <div class="datetime-range">
-                                <div class="datetime-input">
-                                    <label>开始时间</label>
-                                    <input type="datetime-local" id="export-start-time" class="form-input">
+                <div class="export-layout">
+                    <div class="export-main">
+                        <div class="export-section">
+                            <div class="section-title"><i class="fas fa-file-export"></i> 导出格式</div>
+                            <div class="export-format-cards">
+                                <div class="export-format-card active" data-format="excel" onclick="selectExportFormat('excel')">
+                                    <div class="format-icon excel">
+                                        <i class="fas fa-file-excel"></i>
+                                    </div>
+                                    <div class="format-info">
+                                        <div class="format-name">Excel</div>
+                                        <div class="format-ext">.xlsx</div>
+                                    </div>
+                                    <div class="format-check"><i class="fas fa-check"></i></div>
                                 </div>
-                                <div class="datetime-separator">
-                                    <i class="fas fa-arrow-right"></i>
+                                <div class="export-format-card" data-format="csv" onclick="selectExportFormat('csv')">
+                                    <div class="format-icon csv">
+                                        <i class="fas fa-file-csv"></i>
+                                    </div>
+                                    <div class="format-info">
+                                        <div class="format-name">CSV</div>
+                                        <div class="format-ext">.csv</div>
+                                    </div>
+                                    <div class="format-check"><i class="fas fa-check"></i></div>
                                 </div>
-                                <div class="datetime-input">
-                                    <label>结束时间</label>
-                                    <input type="datetime-local" id="export-end-time" class="form-input">
+                                <div class="export-format-card" data-format="json" onclick="selectExportFormat('json')">
+                                    <div class="format-icon json">
+                                        <i class="fas fa-file-code"></i>
+                                    </div>
+                                    <div class="format-info">
+                                        <div class="format-name">JSON</div>
+                                        <div class="format-ext">.json</div>
+                                    </div>
+                                    <div class="format-check"><i class="fas fa-check"></i></div>
                                 </div>
                             </div>
+                            <input type="hidden" id="export-format" value="excel">
                         </div>
-                        
-                        <div class="setting-card">
-                            <div class="setting-label">
-                                <i class="fas fa-filter"></i>
-                                状态码筛选
+
+                        <div class="export-section">
+                            <div class="section-title"><i class="fas fa-cog"></i> 导出设置</div>
+                            <div class="export-settings">
+                                <div class="setting-card">
+                                    <div class="setting-label">
+                                        <i class="fas fa-file-signature"></i>
+                                        文件名
+                                    </div>
+                                    <div class="filename-input">
+                                        <input type="text" id="export-filename" class="form-input" value="logs_export" placeholder="输入导出文件名">
+                                        <span class="filename-ext" id="filename-ext">.xlsx</span>
+                                    </div>
+                                </div>
+
+                                <div class="setting-card">
+                                    <div class="setting-label">
+                                        <i class="fas fa-calendar-alt"></i>
+                                        时间范围
+                                    </div>
+                                    <div class="datetime-range">
+                                        <div class="datetime-input">
+                                            <label>开始时间</label>
+                                            <input type="datetime-local" id="export-start-time" class="form-input">
+                                        </div>
+                                        <div class="datetime-separator">
+                                            <i class="fas fa-arrow-right"></i>
+                                        </div>
+                                        <div class="datetime-input">
+                                            <label>结束时间</label>
+                                            <input type="datetime-local" id="export-end-time" class="form-input">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-card">
+                                    <div class="setting-label">
+                                        <i class="fas fa-filter"></i>
+                                        状态码筛选
+                                    </div>
+                                    <div class="export-status-filter">
+                                        <button type="button" class="status-filter-btn" data-status="200" onclick="toggleExportStatus(this)">
+                                            <span class="status-dot success"></span> 200
+                                        </button>
+                                        <button type="button" class="status-filter-btn" data-status="301,302" onclick="toggleExportStatus(this)">
+                                            <span class="status-dot redirect"></span> 30x
+                                        </button>
+                                        <button type="button" class="status-filter-btn" data-status="404" onclick="toggleExportStatus(this)">
+                                            <span class="status-dot client-error"></span> 404
+                                        </button>
+                                        <button type="button" class="status-filter-btn" data-status="500" onclick="toggleExportStatus(this)">
+                                            <span class="status-dot server-error"></span> 500
+                                        </button>
+                                    </div>
+                                    <input type="hidden" id="export-status" value="">
+                                </div>
                             </div>
-                            <div class="export-status-filter">
-                                <button type="button" class="status-filter-btn" data-status="200" onclick="toggleExportStatus(this)">
-                                    <span class="status-dot success"></span> 200
-                                </button>
-                                <button type="button" class="status-filter-btn" data-status="301,302" onclick="toggleExportStatus(this)">
-                                    <span class="status-dot redirect"></span> 30x
-                                </button>
-                                <button type="button" class="status-filter-btn" data-status="404" onclick="toggleExportStatus(this)">
-                                    <span class="status-dot client-error"></span> 404
-                                </button>
-                                <button type="button" class="status-filter-btn" data-status="500" onclick="toggleExportStatus(this)">
-                                    <span class="status-dot server-error"></span> 500
-                                </button>
-                            </div>
-                            <input type="hidden" id="export-status" value="">
                         </div>
                     </div>
-                </div>
 
-                <!-- 导出预览 -->
-                <div class="export-section">
-                    <div class="section-title"><i class="fas fa-eye"></i> 导出预览</div>
-                    <div class="export-preview">
-                        <div class="preview-item">
-                            <span class="preview-label">预计导出条数</span>
-                            <span class="preview-value" id="export-count">-</span>
+                    <div class="export-side">
+                        <div class="export-section export-preview-shell">
+                            <div class="section-title"><i class="fas fa-eye"></i> 导出预览</div>
+                            <div class="export-preview">
+                                <div class="preview-item">
+                                    <span class="preview-label">预计导出条数</span>
+                                    <span class="preview-value" id="export-count">-</span>
+                                </div>
+                                <div class="preview-item">
+                                    <span class="preview-label">文件大小预估</span>
+                                    <span class="preview-value" id="export-size">-</span>
+                                </div>
+                                <div class="preview-item">
+                                    <span class="preview-label">时间范围</span>
+                                    <span class="preview-value" id="export-range">全部</span>
+                                </div>
+                            </div>
+                            <div class="export-actions">
+                                <button class="btn btn-primary btn-export" onclick="exportLogs()">
+                                    <i class="fas fa-download"></i>
+                                    <span>开始导出</span>
+                                </button>
+                            </div>
                         </div>
-                        <div class="preview-item">
-                            <span class="preview-label">文件大小预估</span>
-                            <span class="preview-value" id="export-size">-</span>
-                        </div>
-                        <div class="preview-item">
-                            <span class="preview-label">时间范围</span>
-                            <span class="preview-value" id="export-range">全部</span>
+
+                        <div class="export-side-note">
+                            <i class="fas fa-circle-info"></i>
+                            <span>导出前建议先在“查询”页面确认筛选范围，避免导出无效数据。</span>
                         </div>
                     </div>
-                </div>
-
-                <!-- 导出按钮 -->
-                <div class="export-actions">
-                    <button class="btn btn-primary btn-export" onclick="exportLogs()">
-                        <i class="fas fa-download"></i>
-                        <span>开始导出</span>
-                    </button>
                 </div>
             </section>
         </main>
@@ -760,6 +788,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=12"></script>
+    <script src="/static/js/app.js?v=13"></script>
 </body>
 </html>
