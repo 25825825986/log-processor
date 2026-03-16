@@ -88,6 +88,163 @@ const FORMAT_TIME_MAPPING = {
     'custom': ''
 };
 
+const TIME_PICKER_GROUPS = {
+    filter: {
+        startDate: 'filter-start-date',
+        startClock: 'filter-start-clock',
+        startHidden: 'filter-start-time',
+        endDate: 'filter-end-date',
+        endClock: 'filter-end-clock',
+        endHidden: 'filter-end-time'
+    },
+    export: {
+        startDate: 'export-start-date',
+        startClock: 'export-start-clock',
+        startHidden: 'export-start-time',
+        endDate: 'export-end-date',
+        endClock: 'export-end-clock',
+        endHidden: 'export-end-time'
+    }
+};
+
+function padTimeNumber(value) {
+    return String(value).padStart(2, '0');
+}
+
+function formatDateInputValue(date) {
+    return `${date.getFullYear()}-${padTimeNumber(date.getMonth() + 1)}-${padTimeNumber(date.getDate())}`;
+}
+
+function formatTimeInputValue(date) {
+    return `${padTimeNumber(date.getHours())}:${padTimeNumber(date.getMinutes())}`;
+}
+
+function formatDateTimeLocalValue(date) {
+    return `${formatDateInputValue(date)}T${formatTimeInputValue(date)}`;
+}
+
+function getTimePickerElements(target) {
+    return TIME_PICKER_GROUPS[target] || null;
+}
+
+function syncTimePickerHidden(target, side) {
+    const group = getTimePickerElements(target);
+    if (!group) return;
+
+    const dateInput = document.getElementById(group[`${side}Date`]);
+    const clockInput = document.getElementById(group[`${side}Clock`]);
+    const hiddenInput = document.getElementById(group[`${side}Hidden`]);
+    if (!dateInput || !clockInput || !hiddenInput) return;
+
+    if (!dateInput.value) {
+        hiddenInput.value = '';
+        return;
+    }
+
+    const fallbackTime = side === 'start' ? '00:00' : '23:59';
+    hiddenInput.value = `${dateInput.value}T${clockInput.value || fallbackTime}`;
+}
+
+function setTimePickerField(target, side, date) {
+    const group = getTimePickerElements(target);
+    if (!group) return;
+
+    const dateInput = document.getElementById(group[`${side}Date`]);
+    const clockInput = document.getElementById(group[`${side}Clock`]);
+    const hiddenInput = document.getElementById(group[`${side}Hidden`]);
+    if (!dateInput || !clockInput || !hiddenInput) return;
+
+    if (!date) {
+        dateInput.value = '';
+        clockInput.value = '';
+        hiddenInput.value = '';
+        return;
+    }
+
+    dateInput.value = formatDateInputValue(date);
+    clockInput.value = formatTimeInputValue(date);
+    hiddenInput.value = formatDateTimeLocalValue(date);
+}
+
+function setTimePickerRange(target, startDate, endDate) {
+    setTimePickerField(target, 'start', startDate);
+    setTimePickerField(target, 'end', endDate);
+}
+
+function updateTimePresetButtons(target, activeRange) {
+    document.querySelectorAll(`.time-preset-btn[data-target="${target}"]`).forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.range === activeRange);
+    });
+}
+
+function applyTimePreset(target, range) {
+    const now = new Date();
+    let startDate = null;
+    let endDate = null;
+
+    switch (range) {
+        case '1h':
+            endDate = new Date(now);
+            startDate = new Date(now.getTime() - 60 * 60 * 1000);
+            break;
+        case '24h':
+            endDate = new Date(now);
+            startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            break;
+        case '7d':
+            endDate = new Date(now);
+            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            break;
+        case 'today':
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+            endDate = new Date(now);
+            break;
+        case 'clear':
+            break;
+        default:
+            return;
+    }
+
+    setTimePickerRange(target, startDate, endDate);
+    updateTimePresetButtons(target, range === 'clear' ? '' : range);
+
+    if (target === 'export') {
+        updateExportPreview();
+    }
+}
+
+function initTimePickers() {
+    Object.keys(TIME_PICKER_GROUPS).forEach(target => {
+        const group = getTimePickerElements(target);
+        ['start', 'end'].forEach(side => {
+            const dateInput = document.getElementById(group[`${side}Date`]);
+            const clockInput = document.getElementById(group[`${side}Clock`]);
+            const hiddenInput = document.getElementById(group[`${side}Hidden`]);
+
+            if (!dateInput || !clockInput || !hiddenInput) return;
+
+            const sync = () => {
+                syncTimePickerHidden(target, side);
+                updateTimePresetButtons(target, '');
+                if (target === 'export') {
+                    updateExportPreview();
+                }
+            };
+
+            dateInput.addEventListener('change', sync);
+            clockInput.addEventListener('change', sync);
+        });
+    });
+
+    document.querySelectorAll('.time-preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            applyTimePreset(btn.dataset.target, btn.dataset.range);
+        });
+    });
+
+    applyTimePreset('filter', '24h');
+}
+
 // 閺佹澘鐡ф潏鎾冲弳濡楀棝鐛欑拠渚€鍘ょ純?
 const NUMBER_INPUT_LIMITS = {
     'processor-workers': { min: 1, max: 100 },
@@ -192,6 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     initConfigTabs();
     initUploadZone();
+    initTimePickers();
     initFormatListeners();
     initNumberValidation(); // 閸掓繂顫愰崠鏍ㄦ殶鐎涙鐛欑拠?
     initExportPreview(); // 閸掓繂顫愰崠鏍ь嚤閸戞椽顣╃憴?
@@ -453,6 +611,98 @@ function initUploadZone() {
     });
 }
 
+function createImportId(file, index) {
+    const suffix = Math.random().toString(36).slice(2, 8);
+    return `import_${Date.now()}_${index}_${file.size || 0}_${suffix}`;
+}
+
+function startImportProgressPolling(importId, onProgress) {
+    let stopped = false;
+
+    const poll = async () => {
+        while (!stopped) {
+            try {
+                const response = await fetch(`/api/logs/import/progress?id=${encodeURIComponent(importId)}`, {
+                    cache: 'no-store'
+                });
+
+                if (response.ok) {
+                    const progress = await response.json();
+                    if (typeof onProgress === 'function') {
+                        onProgress(progress);
+                    }
+
+                    if (['completed', 'partial', 'warning', 'error'].includes(progress.phase)) {
+                        break;
+                    }
+                }
+            } catch (error) {
+                // 忽略短暂轮询失败，等待下一轮
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    };
+
+    poll();
+
+    return () => {
+        stopped = true;
+    };
+}
+
+function importFileWithProgress(file, importId, onUploadProgress, onServerProcessing) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/logs/import', true);
+
+        let markedProcessing = false;
+        const markProcessing = () => {
+            if (!markedProcessing) {
+                markedProcessing = true;
+                if (typeof onServerProcessing === 'function') {
+                    onServerProcessing();
+                }
+            }
+        };
+
+        xhr.upload.addEventListener('progress', (event) => {
+            if (!event.lengthComputable) return;
+            if (typeof onUploadProgress === 'function') {
+                onUploadProgress(event.loaded, event.total);
+            }
+            if (event.loaded >= event.total) {
+                markProcessing();
+            }
+        });
+
+        xhr.upload.addEventListener('load', () => {
+            markProcessing();
+        });
+
+        xhr.addEventListener('load', () => {
+            resolve({
+                ok: xhr.status >= 200 && xhr.status < 300,
+                status: xhr.status,
+                text: xhr.responseText || ''
+            });
+        });
+
+        xhr.addEventListener('error', () => {
+            reject(new Error('网络错误，导入请求失败'));
+        });
+
+        xhr.addEventListener('abort', () => {
+            reject(new Error('导入请求已取消'));
+        });
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('import_id', importId);
+        xhr.send(formData);
+    });
+}
+
 // 婢跺嫮鎮婇弬鍥︽娑撳﹣绱?
 async function handleFiles(files) {
     const fileList = Array.from(files || []);
@@ -480,6 +730,10 @@ async function handleFiles(files) {
     let hasSuccess = false;
     const totalBytes = fileList.reduce((sum, file) => sum + (file.size || 0), 0);
     let uploadedBytes = 0;
+    let currentFileUploadedBytes = 0;
+    let requestPending = false;
+    let speedHint = '';
+    let processingProgress = null;
     const startedAt = Date.now();
 
     if (selectedCountEl) selectedCountEl.textContent = String(fileList.length);
@@ -491,19 +745,40 @@ async function handleFiles(files) {
     resultsDiv.innerHTML = '';
 
     const updateProgressStats = (doneFiles) => {
-        const percent = totalBytes > 0
-            ? Math.min(100, Math.round((uploadedBytes / totalBytes) * 100))
-            : Math.round((doneFiles / fileList.length) * 100);
-        progressPercent.textContent = `${percent}%`;
-        progressFill.style.width = `${percent}%`;
+        const backendPercent = requestPending && processingProgress
+            ? Math.max(0, Math.min(100, Number(processingProgress.percent || 0)))
+            : null;
+        const displayUploaded = uploadedBytes + currentFileUploadedBytes;
+        const percent = backendPercent !== null
+            ? Math.round(backendPercent)
+            : totalBytes > 0
+                ? Math.min(100, Math.round((displayUploaded / totalBytes) * 100))
+                : Math.round((doneFiles / fileList.length) * 100);
+        const displayPercent = percent;
+        progressPercent.textContent = `${displayPercent}%`;
+        progressFill.style.width = `${displayPercent}%`;
 
         if (progressSize) {
-            progressSize.textContent = `${formatBytes(uploadedBytes)} / ${formatBytes(totalBytes)}`;
+            if (requestPending && processingProgress) {
+                const parsed = Number(processingProgress.parsed_lines || 0).toLocaleString();
+                const target = Number(processingProgress.target_lines || 0).toLocaleString();
+                progressSize.textContent = `已解析 ${parsed} / ${target} 条`;
+            } else {
+                progressSize.textContent = `${formatBytes(displayUploaded)} / ${formatBytes(totalBytes)}`;
+            }
         }
 
         if (progressSpeed) {
-            const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.1);
-            progressSpeed.textContent = `${formatBytes(uploadedBytes / elapsedSeconds)}/s`;
+            if (requestPending && processingProgress) {
+                const written = Number(processingProgress.written_lines || 0).toLocaleString();
+                const skipped = Number(processingProgress.skipped_lines || 0).toLocaleString();
+                progressSpeed.textContent = `已写入 ${written} 条 · 已跳过 ${skipped} 条`;
+            } else if (speedHint) {
+                progressSpeed.textContent = speedHint;
+            } else {
+                const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.1);
+                progressSpeed.textContent = `${formatBytes(displayUploaded / elapsedSeconds)}/s`;
+            }
         }
     };
 
@@ -511,18 +786,55 @@ async function handleFiles(files) {
 
     for (let i = 0; i < fileList.length; i++) {
         const file = fileList[i];
-        const formData = new FormData();
-        formData.append('file', file);
+        const importId = createImportId(file, i);
+        let stopProgressPolling = null;
         progressFilename.textContent = file.name;
+        currentFileUploadedBytes = 0;
+        requestPending = true;
+        speedHint = '上传中...';
+        processingProgress = null;
+        updateProgressStats(i);
 
         try {
-            const response = await fetch('/api/logs/import', {
-                method: 'POST',
-                body: formData
-            });
+            const response = await importFileWithProgress(
+                file,
+                importId,
+                (loaded, total) => {
+                    const safeTotal = total > 0 ? total : (file.size || 1);
+                    const ratio = Math.min(1, Math.max(0, loaded / safeTotal));
+                    currentFileUploadedBytes = Math.round((file.size || 0) * ratio);
+                    speedHint = '上传中...';
+                    updateProgressStats(i);
+                },
+                () => {
+                    currentFileUploadedBytes = file.size || currentFileUploadedBytes;
+                    speedHint = '';
+                    if (!stopProgressPolling) {
+                        stopProgressPolling = startImportProgressPolling(importId, (progress) => {
+                            processingProgress = progress;
+                            currentFileUploadedBytes = Math.round((file.size || 0) * (Number(progress.percent || 0) / 100));
+                            updateProgressStats(i);
+                        });
+                    }
+                    updateProgressStats(i);
+                }
+            );
+
+            if ((file.size || 0) > 0 && currentFileUploadedBytes === 0) {
+                currentFileUploadedBytes = file.size;
+                speedHint = '';
+                if (!stopProgressPolling) {
+                    stopProgressPolling = startImportProgressPolling(importId, (progress) => {
+                        processingProgress = progress;
+                        currentFileUploadedBytes = Math.round((file.size || 0) * (Number(progress.percent || 0) / 100));
+                        updateProgressStats(i);
+                    });
+                }
+                updateProgressStats(i);
+            }
 
             let result = {};
-            const text = await response.text();
+            const text = response.text;
             try {
                 result = JSON.parse(text);
             } catch (e) {
@@ -603,7 +915,14 @@ async function handleFiles(files) {
             resultsDiv.appendChild(resultItem);
             failFiles += 1;
         } finally {
+            if (stopProgressPolling) {
+                stopProgressPolling();
+            }
+            requestPending = false;
+            speedHint = '';
+            processingProgress = null;
             uploadedBytes += (file.size || 0);
+            currentFileUploadedBytes = 0;
             updateProgressStats(i + 1);
             if (successCountEl) successCountEl.textContent = String(successFiles);
             if (failCountEl) failCountEl.textContent = String(failFiles);
@@ -1638,8 +1957,7 @@ function updateActiveFilters(filters) {
 
 // 闁插秶鐤嗙粵娑⑩偓?
 function resetFilters() {
-    document.getElementById('filter-start-time').value = '';
-    document.getElementById('filter-end-time').value = '';
+    applyTimePreset('filter', 'clear');
     document.querySelectorAll('#filter-method .method-tag').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('#filter-status .status-tag').forEach(btn => btn.classList.remove('active'));
     document.getElementById('filter-keyword').value = '';

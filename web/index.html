@@ -159,11 +159,23 @@
                     <div class="filter-grid">
                         <div class="form-group">
                             <label class="form-label">开始时间</label>
-                            <input type="datetime-local" id="filter-start-time" class="form-input">
+                            <div class="time-selector">
+                                <div class="time-combo">
+                                    <input type="date" id="filter-start-date" class="form-input">
+                                    <input type="time" id="filter-start-clock" class="form-input" step="60">
+                                </div>
+                                <input type="hidden" id="filter-start-time">
+                            </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label">结束时间</label>
-                            <input type="datetime-local" id="filter-end-time" class="form-input">
+                            <div class="time-selector">
+                                <div class="time-combo">
+                                    <input type="date" id="filter-end-date" class="form-input">
+                                    <input type="time" id="filter-end-clock" class="form-input" step="60">
+                                </div>
+                                <input type="hidden" id="filter-end-time">
+                            </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label">请求方法</label>
@@ -224,6 +236,13 @@
                             <label class="form-label">关键词</label>
                             <input type="text" id="filter-keyword" class="form-input" placeholder="搜索路径、IP等">
                         </div>
+                    </div>
+                    <div class="time-preset-row">
+                        <button type="button" class="time-preset-btn" data-target="filter" data-range="1h">最近1小时</button>
+                        <button type="button" class="time-preset-btn" data-target="filter" data-range="24h">最近24小时</button>
+                        <button type="button" class="time-preset-btn" data-target="filter" data-range="7d">最近7天</button>
+                        <button type="button" class="time-preset-btn" data-target="filter" data-range="today">今天</button>
+                        <button type="button" class="time-preset-btn" data-target="filter" data-range="clear">清空</button>
                     </div>
                     <div class="filter-divider"></div>
                     
@@ -696,17 +715,36 @@
                                         <i class="fas fa-calendar-alt"></i>
                                         时间范围
                                     </div>
+                                    <div class="time-preset-row">
+                                        <button type="button" class="time-preset-btn" data-target="export" data-range="1h">最近1小时</button>
+                                        <button type="button" class="time-preset-btn" data-target="export" data-range="24h">最近24小时</button>
+                                        <button type="button" class="time-preset-btn" data-target="export" data-range="7d">最近7天</button>
+                                        <button type="button" class="time-preset-btn" data-target="export" data-range="today">今天</button>
+                                        <button type="button" class="time-preset-btn" data-target="export" data-range="clear">清空</button>
+                                    </div>
                                     <div class="datetime-range">
                                         <div class="datetime-input">
                                             <label>开始时间</label>
-                                            <input type="datetime-local" id="export-start-time" class="form-input">
+                                            <div class="time-selector">
+                                                <div class="time-combo">
+                                                    <input type="date" id="export-start-date" class="form-input">
+                                                    <input type="time" id="export-start-clock" class="form-input" step="60">
+                                                </div>
+                                                <input type="hidden" id="export-start-time">
+                                            </div>
                                         </div>
                                         <div class="datetime-separator">
                                             <i class="fas fa-arrow-right"></i>
                                         </div>
                                         <div class="datetime-input">
                                             <label>结束时间</label>
-                                            <input type="datetime-local" id="export-end-time" class="form-input">
+                                            <div class="time-selector">
+                                                <div class="time-combo">
+                                                    <input type="date" id="export-end-date" class="form-input">
+                                                    <input type="time" id="export-end-clock" class="form-input" step="60">
+                                                </div>
+                                                <input type="hidden" id="export-end-time">
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

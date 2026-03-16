@@ -2469,6 +2469,48 @@ input:checked + .slider:before {
   color: var(--text-tertiary);
 }
 
+.time-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.time-combo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 10px;
+}
+
+.time-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.time-preset-btn {
+  padding: 8px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.time-preset-btn:hover {
+  border-color: var(--primary-light);
+  color: var(--primary);
+  background: var(--primary-bg);
+}
+
+.time-preset-btn.active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-bg);
+}
+
 .export-status-filter {
   display: flex;
   gap: 12px;
@@ -2620,6 +2662,10 @@ input:checked + .slider:before {
 
   .datetime-separator {
     display: none;
+  }
+
+  .time-combo {
+    grid-template-columns: 1fr;
   }
 
   .btn-export {

@@ -242,6 +242,31 @@ func (q *DiskOverflowQueue) Stats() OverflowQueueStats {
 	}
 }
 
+// Clear 清空磁盘溢出队列中的所有待处理数据。
+func (q *DiskOverflowQueue) Clear() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	f, err := os.OpenFile(q.filePath, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		q.writeErr++
+		return err
+	}
+	defer f.Close()
+
+	if err := f.Truncate(0); err != nil {
+		q.writeErr++
+		return err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		q.writeErr++
+		return err
+	}
+
+	q.pending = 0
+	return nil
+}
+
 func countQueueLines(path string) (int64, error) {
 	f, err := os.Open(path)
 	if err != nil {

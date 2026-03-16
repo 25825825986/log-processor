@@ -54,3 +54,33 @@ func TestDiskOverflowQueueRejectsWhenDiskLimitReached(t *testing.T) {
 		t.Fatalf("expected dropped count > 0")
 	}
 }
+
+func TestDiskOverflowQueueClear(t *testing.T) {
+	t.Parallel()
+
+	q, err := NewDiskOverflowQueue(t.TempDir(), 10)
+	if err != nil {
+		t.Fatalf("create queue failed: %v", err)
+	}
+
+	if !q.Enqueue("line-1") || !q.Enqueue("line-2") {
+		t.Fatalf("enqueue should succeed")
+	}
+
+	if err := q.Clear(); err != nil {
+		t.Fatalf("clear failed: %v", err)
+	}
+
+	stats := q.Stats()
+	if stats.PendingCount != 0 {
+		t.Fatalf("expected pending=0, got %d", stats.PendingCount)
+	}
+
+	drained := q.Drain(10, func(line string) bool {
+		t.Fatalf("no line should be drained after clear, got %q", line)
+		return true
+	})
+	if drained != 0 {
+		t.Fatalf("expected drained=0, got %d", drained)
+	}
+}

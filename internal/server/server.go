@@ -2,6 +2,7 @@
 package server
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,7 +26,34 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type directBatchStorage interface {
+	SaveBatchDirect(entries []*models.LogEntry) error
+}
+
+type importProgressState struct {
+	ID           string    `json:"id"`
+	FileName     string    `json:"file_name"`
+	Phase        string    `json:"phase"`
+	ParsedLines  int64     `json:"parsed_lines"`
+	WrittenLines int64     `json:"written_lines"`
+	SkippedLines int64     `json:"skipped_lines"`
+	ScannedLines int64     `json:"scanned_lines"`
+	TargetLines  int64     `json:"target_lines"`
+	Percent      float64   `json:"percent"`
+	LimitReached bool      `json:"limit_reached"`
+	StartedAt    time.Time `json:"started_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Message      string    `json:"message,omitempty"`
+}
+
 func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func minFloat64(a, b float64) float64 {
 	if a < b {
 		return a
 	}
@@ -47,6 +75,8 @@ type Server struct {
 	benchmarkMu      sync.Mutex
 	benchmarkRunning bool
 	lastBenchmark    map[string]interface{}
+	importProgressMu sync.RWMutex
+	importProgress   map[string]*importProgressState
 }
 
 // NewServer 创建新服务器
@@ -68,6 +98,7 @@ func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Proces
 		receiver:        recv,
 		exportManager:   exporter.NewExportManager(),
 		receiverRunning: true,
+		importProgress:  make(map[string]*importProgressState),
 	}
 
 	s.setupRoutes()
@@ -109,7 +140,8 @@ func (s *Server) setupRoutes() {
 
 		// 日志查询
 		api.GET("/logs", s.queryLogs)
-		api.POST("/logs/import", s.importLogs)
+		api.POST("/logs/import", s.importLogsFast)
+		api.GET("/logs/import/progress", s.getImportProgress)
 		api.DELETE("/logs/:id", s.deleteLog)
 		api.DELETE("/logs", s.clearLogs)
 
@@ -554,12 +586,17 @@ func (s *Server) deleteLog(c *gin.Context) {
 
 // clearLogs 清空所有日志
 func (s *Server) clearLogs(c *gin.Context) {
+	s.processor.ClearPendingData()
+
 	if err := s.storage.Clear(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "All logs cleared"})
+	c.JSON(http.StatusOK, gin.H{
+		"status":  "ok",
+		"message": "All logs and pending backlog cleared",
+	})
 }
 
 // getStatistics 获取统计信息
@@ -1207,6 +1244,343 @@ func boolToFloat64(v bool) float64 {
 		return 1
 	}
 	return 0
+}
+
+// importLogsFast 走离线导入专用链路，绕过实时处理队列和异步存储缓冲。
+func (s *Server) importLogsFast(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	importID := c.PostForm("import_id")
+	if importID == "" {
+		importID = fmt.Sprintf("import_%d", time.Now().UnixNano())
+	}
+	s.createImportProgress(importID, file.Filename)
+	defer s.scheduleImportProgressCleanup(importID, 2*time.Minute)
+
+	tempPath := filepath.Join("./temp", file.Filename)
+	if err := c.SaveUploadedFile(file, tempPath); err != nil {
+		s.finishImportProgress(importID, "error", "保存上传文件失败")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer os.Remove(tempPath)
+
+	currentFormat := s.config.Get().Parser.Format
+	maxImportLines := s.config.Get().Import.MaxLines
+	if maxImportLines <= 0 || maxImportLines > 100000 {
+		maxImportLines = 100000
+	}
+	log.Printf("[IMPORT] 开始快速导入文件 %s, 当前解析格式: %s", file.Filename, currentFormat)
+
+	statsBefore, _ := s.storage.Statistics(models.FilterCondition{})
+	countBefore := int64(0)
+	if statsBefore != nil {
+		countBefore = statsBefore.TotalCount
+	}
+
+	sourceFile, err := os.Open(tempPath)
+	if err != nil {
+		s.finishImportProgress(importID, "error", "打开临时文件失败")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	scanner := bufio.NewScanner(sourceFile)
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+
+	targetLines := int64(0)
+	limitReached := false
+	detectedFormat := "unknown"
+	formatChecked := false
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if !formatChecked {
+			detectedFormat = detectLogFormat(trimmed)
+			if !isFormatCompatible(detectedFormat, currentFormat) {
+				sourceFile.Close()
+				s.finishImportProgress(importID, "warning", "文件格式与当前配置不匹配")
+				c.JSON(http.StatusOK, gin.H{
+					"status":          "warning",
+					"lines":           1,
+					"accepted":        0,
+					"file":            file.Filename,
+					"warning":         fmt.Sprintf("文件格式为 [%s]，但当前配置为 [%s]。请前往「配置」页面修改解析格式后再导入。", detectedFormat, currentFormat),
+					"detected_format": detectedFormat,
+					"current_format":  currentFormat,
+				})
+				return
+			}
+			formatChecked = true
+		}
+
+		targetLines++
+		if targetLines >= int64(maxImportLines) {
+			limitReached = true
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		sourceFile.Close()
+		s.finishImportProgress(importID, "error", "预扫描导入文件失败")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	sourceFile.Close()
+
+	if !formatChecked {
+		s.finishImportProgress(importID, "completed", "文件为空")
+		c.JSON(http.StatusOK, gin.H{
+			"status":   "ok",
+			"lines":    0,
+			"accepted": 0,
+			"file":     file.Filename,
+			"warning":  "文件为空",
+		})
+		return
+	}
+
+	s.updateImportProgress(importID, 0, 0, 0, 0, targetLines, limitReached, "processing", "")
+	log.Printf("[IMPORT] 预扫描完成: target=%d, limit_reached=%v, format=%s", targetLines, limitReached, detectedFormat)
+
+	sourceFile, err = os.Open(tempPath)
+	if err != nil {
+		s.finishImportProgress(importID, "error", "打开临时文件失败")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer sourceFile.Close()
+
+	scanner = bufio.NewScanner(sourceFile)
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+
+	const importBatchSize = 5000
+	batch := make([]*models.LogEntry, 0, importBatchSize)
+	totalLines := 0
+	acceptedCount := 0
+	droppedCount := 0
+	writtenCount := int64(0)
+
+	for scanner.Scan() {
+		totalLines++
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if acceptedCount+droppedCount >= maxImportLines {
+			limitReached = true
+			break
+		}
+
+		entry, parseErr := s.parser.ParseWithFormat(line, detectedFormat)
+		if parseErr != nil {
+			droppedCount++
+			s.updateImportProgress(importID, int64(acceptedCount), writtenCount, int64(droppedCount), int64(totalLines), targetLines, limitReached, "processing", "")
+			continue
+		}
+
+		batch = append(batch, entry)
+		acceptedCount++
+		if acceptedCount%500 == 0 {
+			s.updateImportProgress(importID, int64(acceptedCount), writtenCount, int64(droppedCount), int64(totalLines), targetLines, limitReached, "processing", "")
+		}
+
+		if len(batch) >= importBatchSize {
+			if err := s.saveImportBatch(batch); err != nil {
+				s.finishImportProgress(importID, "error", "批量写入失败")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save imported logs: " + err.Error()})
+				return
+			}
+			writtenCount += int64(len(batch))
+			s.updateImportProgress(importID, int64(acceptedCount), writtenCount, int64(droppedCount), int64(totalLines), targetLines, limitReached, "processing", "")
+			batch = batch[:0]
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		s.finishImportProgress(importID, "error", "读取导入文件失败")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(batch) > 0 {
+		if err := s.saveImportBatch(batch); err != nil {
+			s.finishImportProgress(importID, "error", "批量写入失败")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save imported logs: " + err.Error()})
+			return
+		}
+		writtenCount += int64(len(batch))
+		s.updateImportProgress(importID, int64(acceptedCount), writtenCount, int64(droppedCount), int64(totalLines), targetLines, limitReached, "processing", "")
+	}
+
+	statsAfter, _ := s.storage.Statistics(models.FilterCondition{})
+	countAfter := int64(0)
+	if statsAfter != nil {
+		countAfter = statsAfter.TotalCount
+	}
+	actualImported := countAfter - countBefore
+
+	responseStatus := "ok"
+	warningMsg := ""
+	missedCount := int64(droppedCount)
+	if actualImported < int64(acceptedCount) {
+		missedCount = int64(acceptedCount) - actualImported
+	}
+	if missedCount > 0 {
+		responseStatus = "partial"
+		warningMsg = fmt.Sprintf("解析成功 %d 条，未导入 %d 条", acceptedCount, missedCount)
+	}
+	if limitReached {
+		limitWarning := fmt.Sprintf("单次最多导入 %d 条，已自动截取前 %d 条有效日志", maxImportLines, maxImportLines)
+		if warningMsg == "" {
+			warningMsg = limitWarning
+		} else {
+			warningMsg = warningMsg + "；" + limitWarning
+		}
+		if responseStatus == "ok" {
+			responseStatus = "partial"
+		}
+	}
+
+	finalPhase := "completed"
+	if responseStatus == "partial" {
+		finalPhase = "partial"
+	}
+	s.finishImportProgress(importID, finalPhase, warningMsg)
+	s.updateImportProgress(importID, int64(acceptedCount), actualImported, int64(droppedCount), int64(totalLines), targetLines, limitReached, finalPhase, warningMsg)
+
+	log.Printf("[IMPORT] 文件 %s 快速导入完成: lines=%d accepted=%d imported=%d dropped=%d format=%s",
+		file.Filename, totalLines, acceptedCount, actualImported, droppedCount, detectedFormat)
+
+	c.JSON(http.StatusOK, gin.H{
+		"import_id":     importID,
+		"status":        responseStatus,
+		"lines":         totalLines,
+		"accepted":      acceptedCount,
+		"imported":      actualImported,
+		"dropped":       droppedCount,
+		"max_lines":     maxImportLines,
+		"limit_reached": limitReached,
+		"file":          file.Filename,
+		"warning":       warningMsg,
+	})
+}
+
+func (s *Server) saveImportBatch(entries []*models.LogEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	if directStore, ok := s.storage.(directBatchStorage); ok {
+		return directStore.SaveBatchDirect(entries)
+	}
+	return s.storage.SaveBatch(entries)
+}
+
+func (s *Server) createImportProgress(id, fileName string) {
+	s.importProgressMu.Lock()
+	defer s.importProgressMu.Unlock()
+
+	now := time.Now()
+	s.importProgress[id] = &importProgressState{
+		ID:        id,
+		FileName:  fileName,
+		Phase:     "preparing",
+		StartedAt: now,
+		UpdatedAt: now,
+		Message:   "正在准备导入任务",
+	}
+}
+
+func (s *Server) updateImportProgress(id string, parsed, written, skipped, scanned, target int64, limitReached bool, phase, message string) {
+	s.importProgressMu.Lock()
+	defer s.importProgressMu.Unlock()
+
+	progress, ok := s.importProgress[id]
+	if !ok {
+		return
+	}
+
+	progress.ParsedLines = parsed
+	progress.WrittenLines = written
+	progress.SkippedLines = skipped
+	progress.ScannedLines = scanned
+	progress.TargetLines = target
+	progress.LimitReached = limitReached
+	handledLines := parsed + skipped
+	if target > 0 {
+		progress.Percent = minFloat64(100, (float64(handledLines)/float64(target))*100)
+	} else if phase == "completed" || phase == "partial" {
+		progress.Percent = 100
+	} else {
+		progress.Percent = 0
+	}
+	if phase != "" {
+		progress.Phase = phase
+	}
+	if message != "" {
+		progress.Message = message
+	}
+	progress.UpdatedAt = time.Now()
+}
+
+func (s *Server) finishImportProgress(id, phase, message string) {
+	s.importProgressMu.Lock()
+	defer s.importProgressMu.Unlock()
+
+	progress, ok := s.importProgress[id]
+	if !ok {
+		return
+	}
+
+	if phase != "" {
+		progress.Phase = phase
+	}
+	progress.Message = message
+	if progress.TargetLines > 0 && (progress.Phase == "completed" || progress.Phase == "partial") {
+		progress.Percent = 100
+	}
+	progress.UpdatedAt = time.Now()
+}
+
+func (s *Server) scheduleImportProgressCleanup(id string, delay time.Duration) {
+	time.AfterFunc(delay, func() {
+		s.importProgressMu.Lock()
+		delete(s.importProgress, id)
+		s.importProgressMu.Unlock()
+	})
+}
+
+func (s *Server) getImportProgress(c *gin.Context) {
+	importID := c.Query("id")
+	if importID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing import id"})
+		return
+	}
+
+	s.importProgressMu.RLock()
+	progress, ok := s.importProgress[importID]
+	if !ok {
+		s.importProgressMu.RUnlock()
+		c.JSON(http.StatusNotFound, gin.H{"error": "import progress not found"})
+		return
+	}
+
+	copyProgress := *progress
+	s.importProgressMu.RUnlock()
+
+	c.JSON(http.StatusOK, copyProgress)
 }
 
 func mergeConfigSection(payload map[string]interface{}, key string, target interface{}) error {

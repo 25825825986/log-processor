@@ -549,6 +549,42 @@ func (p *Processor) overflowDrainer() {
 }
 
 // GetStats 获取处理统计
+// ClearPendingData 丢弃当前处理器中尚未落盘的积压数据，并清空磁盘溢出队列。
+func (p *Processor) ClearPendingData() {
+	clearedInput := 0
+	for {
+		select {
+		case <-p.inputChan:
+			clearedInput++
+		default:
+			goto drainOutput
+		}
+	}
+
+drainOutput:
+	clearedOutput := 0
+	for {
+		select {
+		case <-p.outputChan:
+			clearedOutput++
+		default:
+			goto clearOverflow
+		}
+	}
+
+clearOverflow:
+	overflow := p.getOverflow()
+	if overflow != nil {
+		if err := overflow.Clear(); err != nil {
+			log.Printf("[WARN] failed to clear overflow queue: %v", err)
+		}
+	}
+
+	if clearedInput > 0 || clearedOutput > 0 {
+		log.Printf("[INFO] processor backlog cleared: input=%d output=%d", clearedInput, clearedOutput)
+	}
+}
+
 func (p *Processor) GetStats() map[string]interface{} {
 	p.mu.RLock()
 	stats := p.stats

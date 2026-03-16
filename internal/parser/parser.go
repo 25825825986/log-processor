@@ -20,9 +20,9 @@ type Parser interface {
 
 // LogParser 日志解析器实现
 type LogParser struct {
-	config      config.ParserConfig
-	regex       *regexp.Regexp
-	jsonParser  *JSONParser
+	config     config.ParserConfig
+	regex      *regexp.Regexp
+	jsonParser *JSONParser
 }
 
 // JSONParser JSON格式解析器
@@ -51,12 +51,14 @@ func (p *LogParser) SetConfig(cfg config.ParserConfig) {
 
 // Parse 解析日志行（自动识别格式）
 func (p *LogParser) Parse(line string) (*models.LogEntry, error) {
+	return p.ParseWithFormat(line, DetectFormat(line))
+}
+
+// ParseWithFormat 使用指定格式解析日志行，适合批量导入时复用已检测格式。
+func (p *LogParser) ParseWithFormat(line string, format string) (*models.LogEntry, error) {
 	entry := models.NewLogEntry()
 	entry.RawData = line
 
-	// 自动检测格式
-	format := DetectFormat(line)
-	
 	switch format {
 	case "nginx", "apache":
 		return p.parseNginxApache(line, entry)
@@ -78,11 +80,11 @@ func (p *LogParser) parseNginxApache(line string, entry *models.LogEntry) (*mode
 	if !ok {
 		return entry, fmt.Errorf("failed to parse nginx/apache format")
 	}
-	
+
 	for key, value := range data {
 		p.setField(entry, key, value)
 	}
-	
+
 	return entry, nil
 }
 
@@ -101,9 +103,9 @@ func (p *LogParser) parseAutoDelimited(line string, entry *models.LogEntry, form
 	default:
 		delimiter = ","
 	}
-	
+
 	fields := strings.Split(line, delimiter)
-	
+
 	// 尝试自动推断字段映射
 	for i, field := range fields {
 		field = strings.TrimSpace(field)
@@ -114,7 +116,7 @@ func (p *LogParser) parseAutoDelimited(line string, entry *models.LogEntry, form
 			entry.ExtraFields[fmt.Sprintf("field_%d", i)] = field
 		}
 	}
-	
+
 	return entry, nil
 }
 
@@ -122,19 +124,19 @@ func (p *LogParser) parseAutoDelimited(line string, entry *models.LogEntry, form
 func (p *LogParser) parseSyslog(line string, entry *models.LogEntry) (*models.LogEntry, error) {
 	// Syslog格式: 月 日 时间 主机 进程[PID]: 消息
 	pattern := regexp.MustCompile(`^(?P<month>\w{3})\s+(?P<day>\d+)\s+(?P<time>\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+(?P<process>[^\[:]+)(?:\[(?P<pid>\d+)\])?:\s+(?P<message>.+)$`)
-	
+
 	matches := pattern.FindStringSubmatch(line)
 	if matches == nil {
 		return entry, fmt.Errorf("failed to parse syslog format")
 	}
-	
+
 	names := pattern.SubexpNames()
 	for i, name := range names {
 		if i > 0 && i < len(matches) && name != "" {
 			p.setField(entry, name, matches[i])
 		}
 	}
-	
+
 	// 尝试从 message 字段提取 HTTP 访问信息
 	// 格式: IP METHOD PATH STATUS SIZE
 	message := ""
@@ -144,7 +146,7 @@ func (p *LogParser) parseSyslog(line string, entry *models.LogEntry) (*models.Lo
 			break
 		}
 	}
-	
+
 	if message != "" {
 		messagePattern := regexp.MustCompile(`^(?P<client_ip>\S+)\s+(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)`)
 		if msgMatches := messagePattern.FindStringSubmatch(message); msgMatches != nil {
@@ -156,14 +158,14 @@ func (p *LogParser) parseSyslog(line string, entry *models.LogEntry) (*models.Lo
 			}
 		}
 	}
-	
+
 	return entry, nil
 }
 
 // parseGeneric 通用解析（未知格式）
 func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.LogEntry, error) {
 	// 尝试多种通用格式模式
-	
+
 	// 模式1: [time] IP METHOD PATH STATUS SIZE TIMEms
 	pattern1 := regexp.MustCompile(`\[(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+(?P<client_ip>\S+)\s+(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)\s+(?P<response_time>\d+)ms`)
 	if matches := pattern1.FindStringSubmatch(line); matches != nil {
@@ -175,7 +177,7 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 		}
 		return entry, nil
 	}
-	
+
 	// 模式2: time - IP - METHOD PATH - Status: STATUS - Size: SIZE - Time: TIMEms
 	pattern2 := regexp.MustCompile(`(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+-\s+(?P<client_ip>\S+)\s+-\s+(?P<method>\S+)\s+(?P<path>\S+)\s+-\s+Status:\s+(?P<status_code>\d+)\s+-\s+Size:\s+(?P<response_size>\d+)\s+-\s+Time:\s+(?P<response_time>\d+)ms`)
 	if matches := pattern2.FindStringSubmatch(line); matches != nil {
@@ -187,7 +189,7 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 		}
 		return entry, nil
 	}
-	
+
 	// 模式3: [time] IP - METHOD PATH - STATUS - SIZE - TIMEms
 	pattern3 := regexp.MustCompile(`\[(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+(?P<client_ip>\S+)\s+-\s+(?P<method>\S+)\s+(?P<path>\S+)\s+-\s+(?P<status_code>\d+)\s+-\s+(?P<response_size>\d+)\s+-\s+(?P<response_time>\d+)ms`)
 	if matches := pattern3.FindStringSubmatch(line); matches != nil {
@@ -199,7 +201,7 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 		}
 		return entry, nil
 	}
-	
+
 	// 模式4: IP [time] "METHOD PATH" STATUS SIZE TIME
 	pattern4 := regexp.MustCompile(`(?P<client_ip>\S+)\s+\[(?P<timestamp>[^\]]+)\]\s+"(?P<method>\S+)\s+(?P<path>\S+)"\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)\s+(?P<response_time>\d+)`)
 	if matches := pattern4.FindStringSubmatch(line); matches != nil {
@@ -211,7 +213,7 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 		}
 		return entry, nil
 	}
-	
+
 	// 模式5: Request from IP at time: METHOD PATH -> STATUS (SIZE bytes, TIMEms)
 	// 注意：timestamp 格式是 2026-03-09 10:00:04
 	pattern5 := regexp.MustCompile(`Request from (?P<client_ip>\S+) at (?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}):\s+(?P<method>\S+)\s+(?P<path>\S+)\s+->\s+(?P<status_code>\d+)\s+\((?P<response_size>\d+) bytes, (?P<response_time>\d+)ms\)`)
@@ -224,14 +226,14 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 		}
 		return entry, nil
 	}
-	
+
 	// 兜底：尝试提取可能的字段
 	// 1. 查找IP地址
 	ipPattern := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
 	if ip := ipPattern.FindString(line); ip != "" {
 		entry.ClientIP = ip
 	}
-	
+
 	// 2. 查找时间戳
 	timePatterns := []string{
 		`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}`,
@@ -243,13 +245,13 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 			break
 		}
 	}
-	
+
 	// 3. 查找HTTP方法
 	methodPattern := regexp.MustCompile(`\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b`)
 	if method := methodPattern.FindString(line); method != "" {
 		entry.Method = method
 	}
-	
+
 	// 4. 查找状态码
 	statusPattern := regexp.MustCompile(`"\s+(\d{3})\s+`)
 	if matches := statusPattern.FindStringSubmatch(line); len(matches) > 1 {
@@ -257,42 +259,42 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 			entry.StatusCode = code
 		}
 	}
-	
+
 	return entry, nil
 }
 
 // inferFieldName 根据字段内容和位置推断字段名
 func inferFieldName(field string, index, total int) string {
 	field = strings.TrimSpace(field)
-	
+
 	// IP地址
 	if regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`).MatchString(field) {
 		return "client_ip"
 	}
-	
+
 	// HTTP方法
 	if regexp.MustCompile(`^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$`).MatchString(field) {
 		return "method"
 	}
-	
+
 	// 时间戳
 	if regexp.MustCompile(`^\d{4}[-/]\d{2}[-/]\d{2}`).MatchString(field) {
 		return "timestamp"
 	}
-	
+
 	// 路径
 	if strings.HasPrefix(field, "/") {
 		return "path"
 	}
-	
+
 	// 数字字段（响应大小、响应时间或状态码）
 	if regexp.MustCompile(`^\d+$`).MatchString(field) {
 		val, _ := strconv.ParseInt(field, 10, 64)
-		
+
 		// 根据字段位置和值综合判断
 		// 典型格式：ip,method,path,status_code,response_size,response_time,timestamp
 		// 位置：    0    1      2   3           4             5             6
-		
+
 		if total >= 7 {
 			// 标准7字段格式：优先按位置判断
 			switch index {
@@ -302,18 +304,18 @@ func inferFieldName(field string, index, total int) string {
 					return "status_code"
 				}
 			case 4:
-				return "response_size"  // 第5个字段是响应大小
+				return "response_size" // 第5个字段是响应大小
 			case 5:
-				return "response_time"  // 第6个字段是响应时间（即使是3位数字如495ms）
+				return "response_time" // 第6个字段是响应时间（即使是3位数字如495ms）
 			}
 		}
-		
+
 		// 根据字段特征判断（非标准格式或位置不匹配时）
 		// 3位数字且在HTTP状态码范围内
 		if val >= 100 && val <= 999 && len(field) == 3 {
 			return "status_code"
 		}
-		
+
 		// 倒数第2个字段：通常是 response_size（如果值较大）或 response_time（如果值较小）
 		if index == total-2 {
 			if val > 10000 {
@@ -321,7 +323,7 @@ func inferFieldName(field string, index, total int) string {
 			}
 			return "response_time"
 		}
-		
+
 		// 倒数第3个字段
 		if index == total-3 {
 			if val < 30000 {
@@ -329,14 +331,14 @@ func inferFieldName(field string, index, total int) string {
 			}
 			return "response_size"
 		}
-		
+
 		// 默认：小数值是响应时间，大数值是响应大小
 		if val < 30000 {
 			return "response_time"
 		}
 		return "response_size"
 	}
-	
+
 	return ""
 }
 
