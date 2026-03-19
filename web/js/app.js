@@ -3054,10 +3054,17 @@ async function runQuickBenchmark() {
 
 function formatBenchmarkReport(report) {
     const processorDelta = report.processor_delta || {};
+    const backlog = report.queue_backlog || {};
+    const drainCompleted = report.drain_completed !== false;
     return [
         `开始时间: ${report.started_at || '-'}`,
+        `发压完成: ${report.send_finished_at || '-'}`,
         `结束时间: ${report.finished_at || '-'}`,
         `持续时间: ${report.duration_seconds || '-'} 秒`,
+        `发送耗时: ${(report.send_elapsed_seconds ?? report.duration_seconds ?? 0).toFixed(2)} 秒`,
+        `排空耗时: ${(report.drain_elapsed_seconds ?? 0).toFixed(2)} 秒`,
+        `总耗时: ${(report.total_elapsed_seconds ?? report.duration_seconds ?? 0).toFixed(2)} 秒`,
+        `排空状态: ${drainCompleted ? '已排空' : `等待超时（上限 ${(report.drain_timeout_seconds ?? 0).toFixed(0)} 秒）`}`,
         `并发协程: ${report.workers || '-'}`,
         `目标QPS: ${report.target_qps || 0}`,
         '---',
@@ -3067,14 +3074,19 @@ function formatBenchmarkReport(report) {
         `提交QPS: ${(report.submit_qps ?? 0).toFixed(2)}`,
         `入库新增: ${report.stored_added ?? 0}`,
         `入库QPS: ${(report.stored_qps ?? 0).toFixed(2)}`,
+        '--- 队列状态 ---',
+        `输入队列积压: ${backlog.input_queue ?? 0}`,
+        `输出队列积压: ${backlog.output_queue ?? 0}`,
+        `异步存储缓冲: ${backlog.async_buffered ?? 0}`,
+        `溢写队列积压: ${backlog.overflow_pending ?? 0}`,
         '--- 处理器增量 ---',
-        `received_delta: ${processorDelta.received_delta ?? 0}`,
-        `processed_delta: ${processorDelta.processed_delta ?? 0}`,
-        `dropped_delta: ${processorDelta.dropped_delta ?? 0}`,
-        `parse_error_delta: ${processorDelta.parse_error_delta ?? 0}`,
-        `spill_delta: ${processorDelta.spill_delta ?? 0}`,
-        `overflow_recovered_delta: ${processorDelta.overflow_recovered_delta ?? 0}`,
-        `overflow_pending: ${processorDelta.overflow_pending ?? 0}`
+        `接收增量: ${processorDelta.received_delta ?? 0}`,
+        `处理增量: ${processorDelta.processed_delta ?? 0}`,
+        `丢弃增量: ${processorDelta.dropped_delta ?? 0}`,
+        `解析错误增量: ${processorDelta.parse_error_delta ?? 0}`,
+        `溢写增量: ${processorDelta.spill_delta ?? 0}`,
+        `溢写恢复增量: ${processorDelta.overflow_recovered_delta ?? 0}`,
+        `当前溢写积压: ${processorDelta.overflow_pending ?? 0}`
     ].join('\n');
 }
 

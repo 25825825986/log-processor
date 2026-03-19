@@ -1162,7 +1162,15 @@ func (s *Server) runBenchmark(c *gin.Context) {
 	}
 
 	wg.Wait()
-	time.Sleep(2 * time.Second)
+	sendFinished := time.Now()
+	drainTimeout := time.Duration(req.DurationSeconds) * time.Second
+	if drainTimeout < 5*time.Second {
+		drainTimeout = 5 * time.Second
+	}
+	if drainTimeout > 30*time.Second {
+		drainTimeout = 30 * time.Second
+	}
+	drainElapsed, drainCompleted, backlogSnapshot := s.waitForBenchmarkDrain(drainTimeout)
 
 	afterTotal, _ := s.storage.Count(models.FilterCondition{})
 	afterStats := s.processor.GetStats()
@@ -1176,6 +1184,11 @@ func (s *Server) runBenchmark(c *gin.Context) {
 	if sendDuration <= 0 {
 		sendDuration = 1
 	}
+	sendElapsed := sendFinished.Sub(start).Seconds()
+	if sendElapsed <= 0 {
+		sendElapsed = sendDuration
+	}
+	totalElapsed := time.Since(start).Seconds()
 
 	totalSubmitted := atomic.LoadInt64(&submitted)
 	totalRejected := atomic.LoadInt64(&rejected)
@@ -1185,17 +1198,24 @@ func (s *Server) runBenchmark(c *gin.Context) {
 	}
 
 	report := map[string]interface{}{
-		"started_at":       start.Format(time.RFC3339),
-		"finished_at":      time.Now().Format(time.RFC3339),
-		"duration_seconds": req.DurationSeconds,
-		"workers":          req.Workers,
-		"target_qps":       req.TargetQPS,
-		"submitted":        totalSubmitted,
-		"rejected":         totalRejected,
-		"accept_rate":      acceptRate,
-		"submit_qps":       float64(totalSubmitted) / sendDuration,
-		"stored_added":     storedAdded,
-		"stored_qps":       float64(storedAdded) / sendDuration,
+		"started_at":            start.Format(time.RFC3339),
+		"send_finished_at":      sendFinished.Format(time.RFC3339),
+		"finished_at":           time.Now().Format(time.RFC3339),
+		"duration_seconds":      req.DurationSeconds,
+		"send_elapsed_seconds":  sendElapsed,
+		"drain_elapsed_seconds": drainElapsed,
+		"total_elapsed_seconds": totalElapsed,
+		"drain_completed":       drainCompleted,
+		"drain_timeout_seconds": drainTimeout.Seconds(),
+		"workers":               req.Workers,
+		"target_qps":            req.TargetQPS,
+		"submitted":             totalSubmitted,
+		"rejected":              totalRejected,
+		"accept_rate":           acceptRate,
+		"submit_qps":            float64(totalSubmitted) / sendDuration,
+		"stored_added":          storedAdded,
+		"stored_qps":            float64(storedAdded) / sendDuration,
+		"queue_backlog":         backlogSnapshot,
 		"processor_delta": map[string]interface{}{
 			"received_delta":           metricDelta(afterStats, beforeStats, "received_count"),
 			"processed_delta":          metricDelta(afterStats, beforeStats, "processed_count"),
@@ -1346,6 +1366,49 @@ func writePromMetric(builder *strings.Builder, name string, value float64) {
 
 func metricDelta(after map[string]interface{}, before map[string]interface{}, key string) int64 {
 	return asInt64(after[key]) - asInt64(before[key])
+}
+
+func (s *Server) getBenchmarkBacklogSnapshot() map[string]int64 {
+	stats := s.processor.GetStats()
+	snapshot := map[string]int64{
+		"input_queue":      asInt64(stats["input_queue_size"]),
+		"output_queue":     asInt64(stats["output_queue_size"]),
+		"overflow_pending": asInt64(stats["overflow_queue_pending"]),
+		"async_buffered":   0,
+	}
+
+	if asyncStore, ok := s.storage.(interface{ GetStats() storage.AsyncStats }); ok {
+		snapshot["async_buffered"] = asyncStore.GetStats().BufferedCount
+	}
+
+	return snapshot
+}
+
+func (s *Server) waitForBenchmarkDrain(timeout time.Duration) (float64, bool, map[string]int64) {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
+	start := time.Now()
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	lastSnapshot := s.getBenchmarkBacklogSnapshot()
+	for {
+		if lastSnapshot["input_queue"] == 0 &&
+			lastSnapshot["output_queue"] == 0 &&
+			lastSnapshot["overflow_pending"] == 0 &&
+			lastSnapshot["async_buffered"] == 0 {
+			return time.Since(start).Seconds(), true, lastSnapshot
+		}
+
+		if time.Since(start) >= timeout {
+			return time.Since(start).Seconds(), false, lastSnapshot
+		}
+
+		<-ticker.C
+		lastSnapshot = s.getBenchmarkBacklogSnapshot()
+	}
 }
 
 func asInt64(value interface{}) int64 {
