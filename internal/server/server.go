@@ -1239,13 +1239,101 @@ func (s *Server) getBenchmarkReport(c *gin.Context) {
 
 func buildBenchmarkLogLine(sequence int64, workerID int) string {
 	timestamp := time.Now().Format("02/Jan/2006:15:04:05 -0700")
-	path := fmt.Sprintf("/benchmark/%d/%d", workerID, sequence%1000)
+
+	paths := []string{
+		"/",
+		"/index.html",
+		"/favicon.ico",
+		"/static/app.js",
+		"/static/style.css",
+		"/api/login",
+		"/api/logout",
+		"/api/user/profile",
+		"/api/user/list",
+		"/api/orders",
+		"/api/orders/create",
+		"/api/orders/detail",
+		"/api/products",
+		"/api/reports/daily",
+		"/api/reports/error",
+		"/admin/dashboard",
+		"/admin/system/status",
+		"/search?q=log",
+		"/docs/help",
+	}
+	methods := []string{"GET", "GET", "GET", "GET", "POST", "PUT", "DELETE"}
+	referers := []string{
+		"-",
+		"https://portal.example.com/",
+		"https://portal.example.com/dashboard",
+		"https://portal.example.com/orders",
+		"https://portal.example.com/reports",
+		"https://m.example.com/home",
+	}
+	userAgents := []string{
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+		"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36",
+		"curl/8.5.0",
+		"PostmanRuntime/7.43.0",
+	}
+	statusBuckets := []int{200, 200, 200, 200, 200, 200, 201, 204, 301, 302, 400, 401, 403, 404, 429, 500, 502, 503}
+
+	idx := int((sequence + int64(workerID)*7) % int64(len(paths)))
+	path := paths[idx]
+	method := methods[int((sequence+int64(workerID)*3)%int64(len(methods)))]
+	referer := referers[int((sequence+int64(workerID))%int64(len(referers)))]
+	userAgent := userAgents[int((sequence+int64(workerID)*5)%int64(len(userAgents)))]
+	statusCode := statusBuckets[int((sequence*3+int64(workerID))%int64(len(statusBuckets)))]
+
+	if strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".ico") {
+		method = "GET"
+	}
+	if strings.Contains(path, "/create") {
+		method = "POST"
+	}
+	if strings.Contains(path, "/logout") {
+		method = "POST"
+	}
+	if strings.Contains(path, "/profile") && statusCode >= 500 {
+		statusCode = 200
+	}
+
+	ipA := 10 + int((sequence+int64(workerID))%10)
+	ipB := 20 + workerID%30
+	ipC := 1 + int(sequence%200)
+	clientIP := fmt.Sprintf("192.168.%d.%d", ipA, (ipB+ipC)%254+1)
+
+	responseSize := 256 + (sequence*73+int64(workerID)*131)%16384
+	responseTime := 20 + (sequence*17+int64(workerID)*29)%2400
+
+	if statusCode >= 500 {
+		responseTime += 1500
+		responseSize = 128 + sequence%2048
+	}
+	if statusCode == 404 {
+		responseSize = 512 + sequence%1024
+	}
+	if statusCode == 301 || statusCode == 302 {
+		responseTime = 10 + sequence%200
+		responseSize = 64 + sequence%512
+	}
+	if referer == "-" && strings.HasPrefix(path, "/api/") {
+		referer = "https://portal.example.com/api-console"
+	}
+
 	return fmt.Sprintf(
-		`127.0.0.1 - - [%s] "GET %s HTTP/1.1" 200 %d "-" "Benchmark/%d"`,
+		`%s - - [%s] "%s %s HTTP/1.1" %d %d "%s" "%s" "%d"`,
+		clientIP,
 		timestamp,
+		method,
 		path,
-		100+sequence%9000,
-		workerID,
+		statusCode,
+		responseSize,
+		referer,
+		userAgent,
+		responseTime,
 	)
 }
 
