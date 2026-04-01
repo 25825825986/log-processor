@@ -5,14 +5,8 @@
 ## 目录结构
 
 - `benchmark/`
-  - `stress_test.py`：TCP/UDP/HTTP 压测发送器
-  - `find_max_capacity.py`：逐级探测系统可承受速率
-  - `diagnose_system.py`：读取接口状态并监控队列
-  - `download_nasa_logs.py`：下载 NASA 日志样本
-  - `generate_nasa_like_logs.py`：生成 NASA 格式模拟日志
-  - `test_resilient.py`：高压场景下的韧性测试
-  - `stress_test.go`：Go 版发送器
-  - `api_smoke_test_test.go`：Go 接口冒烟测试
+  - `stress_test.py`：实时导入最大压力测试（TCP/UDP/HTTP 压测发送器）
+  - `file_import_stress_test.py`：文件导入最大压力测试（通过 `/api/logs/import` 并发上传大文件）
 - `tools/`
   - `generate_test_logs.py`：生成测试日志
   - `convert_log_format.py`：日志格式转换
@@ -37,36 +31,18 @@ go run cmd/server/main.go
 
 ## 推荐测试顺序
 
-1. 诊断当前状态
+1. 实时导入最大压力测试（TCP）
 
 ```bash
 cd example/benchmark
-python diagnose_system.py --once
-```
-
-2. 运行压测（TCP）
-
-```bash
 python stress_test.py -protocol tcp -addr localhost:9000 -total 20000 -c 20 -rate 40
 ```
 
-3. 探测容量
+2. 文件导入最大压力测试
 
 ```bash
-python find_max_capacity.py -protocol tcp -addr localhost:9000 -c 30
-```
-
-4. 韧性测试（高压）
-
-```bash
-python test_resilient.py --quick
-```
-
-5. 接口冒烟测试（Go）
-
-```bash
-go test ./example/benchmark -run TestStatusEndpoint -v
-go test ./example/benchmark -run TestConfigEndpoint -v
+cd example/benchmark
+python file_import_stress_test.py -lines 50000 -files 5 -clear
 ```
 
 ## 数据生成/转换
@@ -83,19 +59,3 @@ python generate_test_logs.py -n 5000 -f nginx -o ../data/test_nginx.log
 ```bash
 python convert_log_format.py ../data/test_nginx.log ../data/test_json.log --input-format nginx --output-format json
 ```
-
-## 可用性审计
-
-详见 `example/TEST_AUDIT.md`。
-
-
-## 一键压测与报告
-
-```bash
-cd example/benchmark
-python run_suite.py --duration 10 --workers 20 --target-qps 5000
-```
-
-默认会在 `example/benchmark/reports/` 下生成：
-- `benchmark_*.json`
-- `benchmark_*.md`
