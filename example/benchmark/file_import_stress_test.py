@@ -74,11 +74,13 @@ def upload_file(file_path: str, import_id: str) -> dict:
         method="POST",
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
     )
-    with urllib.request.urlopen(req, timeout=300) as resp:
+    with urllib.request.urlopen(req, timeout=600) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
 def monitor_import(import_id: str, stop: threading.Event) -> None:
+    last_phase = ""
+    first_ok = False
     while not stop.is_set():
         try:
             req = urllib.request.Request(f"{BASE}/api/logs/import/progress?id={import_id}", method="GET")
@@ -88,10 +90,23 @@ def monitor_import(import_id: str, stop: threading.Event) -> None:
                 parsed = data.get("parsed_count", 0)
                 written = data.get("written_count", 0)
                 target = data.get("target_count", 0)
-                print(f"  [{import_id}] phase={phase} parsed={parsed} written={written} target={target}")
+                first_ok = True
+                if phase != last_phase or phase in ("completed", "error", "partial"):
+                    print(f"  [{import_id}] phase={phase} parsed={parsed} written={written} target={target}")
+                    last_phase = phase
+                if phase in ("completed", "error", "partial"):
+                    return
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                if first_ok:
+                    # 之前成功过，现在 404 说明已被清理，视为完成
+                    print(f"  [{import_id}] progress cleaned up (404)")
+                    return
+                # 尚未创建，静默等待
         except Exception as exc:
-            print(f"  [{import_id}] monitor error: {exc}")
-        time.sleep(1)
+            if first_ok:
+                print(f"  [{import_id}] monitor error: {exc}")
+        time.sleep(0.5)
 
 
 class ImportStats:
@@ -134,9 +149,8 @@ def worker(args, file_path: str, wid: int, stats: ImportStats):
         stats.add(False, 0, 0)
         print(f"[Worker {wid}] upload failed: {exc}")
     finally:
-        time.sleep(2)
         stop_monitor.set()
-        monitor_thread.join(timeout=3)
+        monitor_thread.join(timeout=5)
 
 
 def main() -> int:
@@ -170,8 +184,12 @@ def main() -> int:
         print("[INFO] 开始并发上传...")
         with ThreadPoolExecutor(max_workers=args.files) as pool:
             futures = [pool.submit(worker, args, file_path, i, stats) for i in range(args.files)]
-            for fut in futures:
-                fut.result()
+            for i, fut in enumerate(futures):
+                try:
+                    fut.result()
+                    print(f"[INFO] Worker {i} 已完成")
+                except Exception as exc:
+                    print(f"[WARN] Worker {i} 异常: {exc}")
 
     elapsed = max(time.time() - stats.start, 1e-6)
     ok, fail, total_lines, total_imported = stats.snapshot()

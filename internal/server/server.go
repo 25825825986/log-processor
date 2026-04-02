@@ -473,7 +473,11 @@ func (s *Server) importLogs(c *gin.Context) {
 	if statsAfter != nil {
 		countAfter = statsAfter.TotalCount
 	}
-	actualImported := countAfter - countBefore
+	// 使用本请求实际写入的 writtenCount，避免并发导入时 countAfter-countBefore 包含其他请求的写入量
+	actualImported := writtenCount
+	if actualImported <= 0 && countAfter > countBefore {
+		actualImported = countAfter - countBefore
+	}
 
 	// 确定响应状态
 	responseStatus := "ok"
