@@ -509,42 +509,9 @@ func detectFileFormat(lines []string) string {
 }
 
 // detectLogFormat 检测单行日志格式
+// 直接复用 parser 包的 DetectFormat，确保导入检测与解析层逻辑一致
 func detectLogFormat(line string) string {
-	trimmed := strings.TrimSpace(line)
-	if len(trimmed) == 0 {
-		return "unknown"
-	}
-
-	// 检测 JSON 格式
-	if (strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}")) ||
-		(strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]")) {
-		return "json"
-	}
-
-	// 检测 CSV 格式（简单判断是否有多个逗号分隔）
-	if strings.Count(trimmed, ",") > 2 && !strings.Contains(trimmed, " ") {
-		return "csv"
-	}
-
-	// 检测 Nginx/Apache 格式（包含IP地址和时间戳格式）
-	// 典型特征: IP地址 + - - + [时间]
-	if strings.Contains(trimmed, " - - [") && strings.Contains(trimmed, "\"") {
-		return "nginx"
-	}
-
-	// 检测是否包含常见日志字段
-	if strings.Contains(trimmed, "GET ") || strings.Contains(trimmed, "POST ") {
-		if strings.Contains(trimmed, "HTTP/1.") {
-			return "nginx"
-		}
-	}
-
-	// 检测 Syslog 格式
-	if strings.Contains(trimmed, "]: ") && (strings.HasPrefix(trimmed, "<") || strings.Contains(trimmed, ": ")) {
-		return "syslog"
-	}
-
-	return "unknown"
+	return parser.DetectFormat(line)
 }
 
 // isFormatCompatible 检查文件格式与配置是否兼容
