@@ -850,6 +850,31 @@ function applyTimePreset(target, range) {
     }
 }
 
+function validateTimePickerRange(target) {
+    const group = getTimePickerElements(target);
+    if (!group) return;
+
+    const startDateInput = document.getElementById(group.startDate);
+    const startClockInput = document.getElementById(group.startClock);
+    const endDateInput = document.getElementById(group.endDate);
+    const endClockInput = document.getElementById(group.endClock);
+
+    if (!startDateInput || !startClockInput || !endDateInput || !endClockInput) return;
+    if (!startDateInput.value || !endDateInput.value) return;
+
+    const startStr = `${startDateInput.value}T${startClockInput.value || '00:00'}`;
+    const endStr = `${endDateInput.value}T${endClockInput.value || '23:59'}`;
+    const startTime = new Date(startStr).getTime();
+    const endTime = new Date(endStr).getTime();
+
+    if (endTime < startTime) {
+        // 结束时间不能早于开始时间，自动将另一方同步为相同值
+        endDateInput.value = startDateInput.value;
+        endClockInput.value = startClockInput.value;
+        syncTimePickerHidden(target, 'end');
+    }
+}
+
 function initTimePickers() {
     Object.keys(TIME_PICKER_GROUPS).forEach(target => {
         const group = getTimePickerElements(target);
@@ -862,6 +887,7 @@ function initTimePickers() {
 
             const sync = () => {
                 syncTimePickerHidden(target, side);
+                validateTimePickerRange(target);
                 updateTimePresetButtons(target, '');
                 if (target === 'export') {
                     updateExportPreview();
@@ -2006,17 +2032,17 @@ async function queryLogs() {
     const startTime = document.getElementById('filter-start-time').value;
     const endTime = document.getElementById('filter-end-time').value;
     const methods = Array.from(document.querySelectorAll('#filter-method .method-tag.active')).map(btn => btn.dataset.value);
-    const statusCodes = Array.from(document.querySelectorAll('#filter-status .status-tag.active')).flatMap(btn => btn.dataset.value.split(','));
+    const statusCodeRanges = Array.from(document.querySelectorAll('#filter-status .status-tag.active')).map(btn => btn.dataset.value);
     const keyword = document.getElementById('filter-keyword').value;
     
     // 更新当前筛选标签
-    updateActiveFilters({ startTime, endTime, methods, statusCodes, keyword });
+    updateActiveFilters({ startTime, endTime, methods, statusCodeRanges, keyword });
     
     const params = new URLSearchParams();
     if (startTime) params.append('start_time', new Date(startTime).toISOString());
     if (endTime) params.append('end_time', new Date(endTime).toISOString());
     methods.forEach(m => params.append('methods', m));
-    statusCodes.forEach(s => params.append('status_codes', s.trim()));
+    statusCodeRanges.forEach(r => params.append('status_code_ranges', r));
     if (keyword) params.append('keyword', keyword);
     params.append('limit', currentLimit);
     params.append('offset', (currentPage - 1) * currentLimit);
@@ -2180,8 +2206,8 @@ async function updateExportPreview() {
     if (startTime) params.append('start_time', new Date(startTime).toISOString());
     if (endTime) params.append('end_time', new Date(endTime).toISOString());
     if (statusCodes) {
-        statusCodes.split(',').forEach(code => {
-            code.split(',').forEach(c => params.append('status_codes', c.trim()));
+        statusCodes.split(',').forEach(r => {
+            params.append('status_code_ranges', r.trim());
         });
     }
 
@@ -2256,9 +2282,9 @@ async function exportLogs() {
         filter.end_time = new Date(endTime).toISOString();
     }
     if (statusCodesInput) {
-        const codes = statusCodesInput.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-        if (codes.length > 0) {
-            filter.status_codes = codes;
+        const ranges = statusCodesInput.split(',').map(s => s.trim()).filter(s => s !== '');
+        if (ranges.length > 0) {
+            filter.status_code_ranges = ranges;
         }
     }
     
@@ -2658,7 +2684,7 @@ function getStatusCodeClass(statusCode) {
 function updateActiveFilters(filters) {
     const container = document.getElementById('active-filters');
     const list = document.getElementById('active-filters-list');
-    const { startTime, endTime, methods, statusCodes, keyword } = filters;
+    const { startTime, endTime, methods, statusCodeRanges, keyword } = filters;
     
     const tags = [];
     
@@ -2671,12 +2697,12 @@ function updateActiveFilters(filters) {
     if (methods.length > 0) {
         tags.push(`<span class="active-filter-tag"><i class="fas fa-code-branch"></i> 方法: ${methods.join(', ')}</span>`);
     }
-    if (statusCodes.length > 0) {
+    if (statusCodeRanges.length > 0) {
         const statusNames = [];
-        if (statusCodes.includes('200')) statusNames.push('200 成功');
-        if (statusCodes.includes('301') || statusCodes.includes('302')) statusNames.push('30x 重定向');
-        if (statusCodes.includes('400') || statusCodes.includes('401') || statusCodes.includes('403') || statusCodes.includes('404')) statusNames.push('40x 客户端错误');
-        if (statusCodes.includes('500') || statusCodes.includes('502') || statusCodes.includes('503')) statusNames.push('50x 服务端错误');
+        if (statusCodeRanges.includes('200-299')) statusNames.push('2xx 成功');
+        if (statusCodeRanges.includes('300-399')) statusNames.push('3xx 重定向');
+        if (statusCodeRanges.includes('400-499')) statusNames.push('4xx 客户端错误');
+        if (statusCodeRanges.includes('500-599')) statusNames.push('5xx 服务端错误');
         tags.push(`<span class="active-filter-tag"><i class="fas fa-shield-alt"></i> 状态: ${statusNames.join(', ')}</span>`);
     }
     if (keyword) {

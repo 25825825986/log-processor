@@ -87,6 +87,7 @@ func NewProcessor(cfg config.ProcessorConfig, parser Parser, storage Storage) *P
 	return p
 }
 
+// 算法2-5：实时日志处理算法
 // Start 启动处理器
 func (p *Processor) Start() {
 	cfg := p.getConfigSnapshot()
@@ -132,6 +133,7 @@ func (p *Processor) Stop() {
 	log.Println("Processor stopped")
 }
 
+// 算法2-3：处理器日志提交
 // Submit 提交日志行
 func (p *Processor) Submit(line string) bool {
 	p.mu.RLock()

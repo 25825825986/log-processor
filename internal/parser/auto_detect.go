@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// 算法2-4：日志格式识别算法
 // DetectFormat automatically detects log format
 func DetectFormat(line string) string {
 	trimmed := strings.TrimSpace(line)

@@ -52,7 +52,8 @@ type FilterCondition struct {
 	EndTime      *time.Time `json:"end_time,omitempty"`
 	Methods      []string   `json:"methods,omitempty"`
 	Paths        []string   `json:"paths,omitempty"`
-	StatusCodes  []int      `json:"status_codes,omitempty"`
+	StatusCodes      []int      `json:"status_codes,omitempty"`
+	StatusCodeRanges []string   `json:"status_code_ranges,omitempty"`
 	ClientIPs    []string   `json:"client_ips,omitempty"`
 	MinResponseTime int64   `json:"min_response_time,omitempty"`
 	MaxResponseTime int64   `json:"max_response_time,omitempty"`

@@ -197,10 +197,10 @@
                         <div class="form-group">
                             <label class="form-label">状态码</label>
                             <div class="status-selector" id="filter-status">
-                                <button type="button" class="status-tag success" data-value="200" onclick="toggleStatus(this)"><span class="status-code">200</span><span class="status-name">成功</span><i class="fas fa-check check-icon"></i></button>
-                                <button type="button" class="status-tag redirect" data-value="301,302" onclick="toggleStatus(this)"><span class="status-code">30x</span><span class="status-name">重定向</span><i class="fas fa-check check-icon"></i></button>
-                                <button type="button" class="status-tag client-error" data-value="400,401,403,404" onclick="toggleStatus(this)"><span class="status-code">40x</span><span class="status-name">客户端错误</span><i class="fas fa-check check-icon"></i></button>
-                                <button type="button" class="status-tag server-error" data-value="500,502,503" onclick="toggleStatus(this)"><span class="status-code">50x</span><span class="status-name">服务端错误</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="status-tag success" data-value="200-299" onclick="toggleStatus(this)"><span class="status-code">2xx</span><span class="status-name">成功</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="status-tag redirect" data-value="300-399" onclick="toggleStatus(this)"><span class="status-code">3xx</span><span class="status-name">重定向</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="status-tag client-error" data-value="400-499" onclick="toggleStatus(this)"><span class="status-code">4xx</span><span class="status-name">客户端错误</span><i class="fas fa-check check-icon"></i></button>
+                                <button type="button" class="status-tag server-error" data-value="500-599" onclick="toggleStatus(this)"><span class="status-code">5xx</span><span class="status-name">服务端错误</span><i class="fas fa-check check-icon"></i></button>
                             </div>
                         </div>
                         <div class="form-group">
@@ -324,7 +324,6 @@
                             <div class="section-title"><i class="fas fa-gauge-high"></i> 当前限制</div>
                             <ul class="import-checklist">
                                 <li>单文件最多导入 <strong id="import-max-lines-display">100,000 条</strong>。</li>
-                                <li>当前多文件并行导入上限为 <strong id="import-concurrency-display">1 个文件</strong>。</li>
                                 <li>当前解析模式：<strong id="import-parser-format-display">自动识别</strong>。</li>
                             </ul>
                         </div>
@@ -394,10 +393,10 @@
                     <div class="form-group">
                         <label class="form-label">状态码筛选</label>
                         <div class="status-selector">
-                            <button type="button" class="status-filter-btn status-tag success" data-status="200" onclick="toggleExportStatus(this)"><span class="status-code">200</span><span class="status-name">成功</span></button>
-                            <button type="button" class="status-filter-btn status-tag redirect" data-status="301,302" onclick="toggleExportStatus(this)"><span class="status-code">30x</span><span class="status-name">重定向</span></button>
-                            <button type="button" class="status-filter-btn status-tag client-error" data-status="400,401,403,404" onclick="toggleExportStatus(this)"><span class="status-code">40x</span><span class="status-name">客户端错误</span></button>
-                            <button type="button" class="status-filter-btn status-tag server-error" data-status="500,502,503" onclick="toggleExportStatus(this)"><span class="status-code">50x</span><span class="status-name">服务端错误</span></button>
+                            <button type="button" class="status-filter-btn status-tag success" data-status="200-299" onclick="toggleExportStatus(this)"><span class="status-code">2xx</span><span class="status-name">成功</span></button>
+                            <button type="button" class="status-filter-btn status-tag redirect" data-status="300-399" onclick="toggleExportStatus(this)"><span class="status-code">3xx</span><span class="status-name">重定向</span></button>
+                            <button type="button" class="status-filter-btn status-tag client-error" data-status="400-499" onclick="toggleExportStatus(this)"><span class="status-code">4xx</span><span class="status-name">客户端错误</span></button>
+                            <button type="button" class="status-filter-btn status-tag server-error" data-status="500-599" onclick="toggleExportStatus(this)"><span class="status-code">5xx</span><span class="status-name">服务端错误</span></button>
                         </div>
                         <input type="hidden" id="export-status" value="">
                     </div>

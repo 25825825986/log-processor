@@ -10,6 +10,7 @@ import (
 	"log-processor/internal/models"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -314,6 +315,23 @@ func (s *SQLiteStorage) buildWhereClause(filter models.FilterCondition) (string,
 			args = append(args, filter.StatusCodes[i])
 		}
 		conditions = append(conditions, fmt.Sprintf("status_code IN (%s)", strings.Join(placeholders, ",")))
+	}
+	if len(filter.StatusCodeRanges) > 0 {
+		rangeConditions := make([]string, 0, len(filter.StatusCodeRanges))
+		for _, r := range filter.StatusCodeRanges {
+			parts := strings.Split(r, "-")
+			if len(parts) == 2 {
+				minVal, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+				maxVal, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+				if err1 == nil && err2 == nil {
+					rangeConditions = append(rangeConditions, "(status_code >= ? AND status_code <= ?)")
+					args = append(args, minVal, maxVal)
+				}
+			}
+		}
+		if len(rangeConditions) > 0 {
+			conditions = append(conditions, "("+strings.Join(rangeConditions, " OR ")+")")
+		}
 	}
 	if filter.Level != "" {
 		conditions = append(conditions, "level = ?")

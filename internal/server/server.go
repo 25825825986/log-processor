@@ -106,6 +106,7 @@ func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Proces
 	return s
 }
 
+// 算法2-7：路由注册与分组
 // setupRoutes 设置路由
 func (s *Server) setupRoutes() {
 	// CORS 中间件
@@ -207,6 +208,7 @@ func (s *Server) getConfig(c *gin.Context) {
 	})
 }
 
+// 算法2-8：配置热更新流程
 // updateConfig 更新配置
 func (s *Server) updateConfig(c *gin.Context) {
 	var jsonConfig map[string]interface{}
@@ -326,6 +328,9 @@ func (s *Server) queryLogs(c *gin.Context) {
 				filter.StatusCodes = append(filter.StatusCodes, i)
 			}
 		}
+	}
+	if ranges := c.QueryArray("status_code_ranges"); len(ranges) > 0 {
+		filter.StatusCodeRanges = ranges
 	}
 	filter.Keyword = c.Query("keyword")
 	filter.Level = c.Query("level")
@@ -1025,6 +1030,7 @@ type benchmarkRunRequest struct {
 }
 
 // runBenchmark 执行一键压测并返回报告
+// 算法2-9：压测执行流程
 func (s *Server) runBenchmark(c *gin.Context) {
 	req := benchmarkRunRequest{
 		DurationSeconds: 10,
@@ -1420,6 +1426,7 @@ func boolToFloat64(v bool) float64 {
 }
 
 // importLogsFast 走离线导入专用链路，绕过实时处理队列和异步存储缓冲。
+// 算法2-6：文件导入流程
 func (s *Server) importLogsFast(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {

@@ -46,6 +46,7 @@ func NewManager(cfg config.ReceiverConfig) *Manager {
 	}
 }
 
+// 算法2-1：接收器管理器启动流程
 // Start 启动所有接收器
 func (m *Manager) Start(handler Handler) error {
 	m.handler = handler
@@ -145,6 +146,7 @@ func NewTCPReceiver(port, bufferSize, maxConnections int) *TCPReceiver {
 	}
 }
 
+// 算法2-2：TCP 连接接受与限制
 // Start 启动TCP接收器
 func (r *TCPReceiver) Start(handler Handler) error {
 	r.handler = handler
