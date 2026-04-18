@@ -2248,9 +2248,10 @@ async function exportLogs() {
         
         if (response.ok) {
             const contentType = response.headers.get('content-type');
-            // 某些失败场景会返回 JSON 错误信息，先解析再处理
+            // 某些失败场景会返回 JSON 错误信息，用 clone 检查避免消耗原响应 body
             if (contentType && contentType.includes('application/json')) {
-                const result = await response.json();
+                const cloned = response.clone();
+                const result = await cloned.json();
                 if (result.error) {
                     alert('导出失败: ' + result.error);
                     return;
