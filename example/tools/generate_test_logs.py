@@ -1,115 +1,214 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-生成用于快速手工验证的模拟日志。
+Generate test log files for the log-processor import feature.
+Each file contains 10,000 log entries in various formats.
 """
 
-from __future__ import annotations
-
-import argparse
-import json
 import random
+import json
+import os
 from datetime import datetime, timedelta
-from pathlib import Path
 
-IPS = [
-    "127.0.0.1",
-    "192.168.1.10",
-    "10.0.0.12",
-    "172.16.2.8",
-]
-METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"]
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+NUM_LINES = 10000
+
+IPS = ['127.0.0.1', '192.168.0.1', '192.168.1.100', '10.0.0.50', '172.16.0.25']
+METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD']
 PATHS = [
-    "/",
-    "/api/users",
-    "/api/orders",
-    "/api/login",
-    "/health",
-    "/metrics",
+    '/', '/home', '/about', '/api/login', '/api/search',
+    '/api/users', '/api/orders', '/api/products', '/admin/dashboard',
+    '/static/js/app.js', '/css/style.css', '/favicon.ico',
+    '/api/v2/items?page=1', '/api/v2/items?page=2'
 ]
-STATUS_CODES = [200, 201, 204, 301, 400, 401, 403, 404, 500, 502]
+STATUSES = [200, 201, 204, 301, 302, 400, 401, 403, 404, 500, 502, 503]
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
+    'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36',
+    'curl/7.68.0',
+    'PostmanRuntime/7.26.8',
+]
+REFERRERS = ['https://google.com', 'https://bing.com', 'https://example.com', '-']
+SERVICES = ['nginx', 'apache', 'api-gateway', 'auth-service', 'database', 'app']
+HOSTS = [f'server-{i}' for i in range(1, 6)]
+LEVELS = ['INFO', 'WARN', 'ERROR', 'DEBUG']
+MESSAGES = [
+    'Request processed', 'User login successful', 'Invalid token provided',
+    'Database connection established', 'API rate limit exceeded',
+    'Resource not found', 'Cache miss for key', 'Query executed in 45ms'
+]
 
 
-def random_time(days: int = 30) -> datetime:
-    base = datetime.now() - timedelta(days=days)
-    return base + timedelta(seconds=random.randint(0, days * 24 * 3600))
+def random_datetime(start=None, end=None):
+    if start is None:
+        start = datetime(2026, 3, 8, 0, 0, 0)
+    if end is None:
+        end = datetime(2026, 4, 16, 23, 59, 59)
+    delta = end - start
+    int_delta = int(delta.total_seconds())
+    random_second = random.randrange(int_delta)
+    return start + timedelta(seconds=random_second)
 
 
-def gen_nginx() -> str:
-    ts = random_time().strftime("%d/%b/%Y:%H:%M:%S +0800")
-    ip = random.choice(IPS)
-    method = random.choice(METHODS)
-    path = random.choice(PATHS)
-    code = random.choice(STATUS_CODES)
-    size = random.randint(100, 10000)
-    return f'{ip} - - [{ts}] "{method} {path} HTTP/1.1" {code} {size}'
+def generate_apache_logs(n):
+    lines = []
+    for _ in range(n):
+        dt = random_datetime()
+        dt_str = dt.strftime('%d/%b/%Y:%H:%M:%S +0800')
+        line = f'{random.choice(IPS)} - - [{dt_str}] "{random.choice(METHODS)} {random.choice(PATHS)} HTTP/1.1" {random.choice(STATUSES)} {random.randint(100, 10000)} {round(random.uniform(0.01, 2.5), 3)}'
+        lines.append(line)
+    return '\n'.join(lines)
 
 
-def gen_json() -> str:
-    data = {
-        "timestamp": random_time().isoformat(),
-        "client_ip": random.choice(IPS),
-        "method": random.choice(METHODS),
-        "path": random.choice(PATHS),
-        "status_code": random.choice(STATUS_CODES),
-        "response_time": random.randint(5, 2000),
-    }
-    return json.dumps(data, ensure_ascii=False)
+def generate_nginx_logs(n):
+    lines = []
+    for _ in range(n):
+        dt = random_datetime()
+        dt_str = dt.strftime('%d/%b/%Y:%H:%M:%S +0800')
+        line = f'{random.choice(IPS)} - - [{dt_str}] "{random.choice(METHODS)} {random.choice(PATHS)} HTTP/1.1" {random.choice(STATUSES)} {random.randint(100, 10000)} "{random.choice(REFERRERS)}" "{random.choice(USER_AGENTS)}" "{round(random.uniform(0.01, 2.5), 3)}"'
+        lines.append(line)
+    return '\n'.join(lines)
 
 
-def gen_csv() -> str:
-    ts = random_time().strftime("%Y-%m-%d %H:%M:%S")
-    return ",".join(
-        [
-            random.choice(IPS),
-            ts,
-            random.choice(METHODS),
-            random.choice(PATHS),
-            str(random.choice(STATUS_CODES)),
-            str(random.randint(100, 10000)),
-            str(random.randint(5, 2000)),
-        ]
-    )
+def generate_json_logs(n):
+    lines = []
+    for i in range(n):
+        dt = random_datetime()
+        record = {
+            'timestamp': dt.strftime('%Y-%m-%dT%H:%M:%S.') + f'{random.randint(100000, 999999)}',
+            'level': random.choice(LEVELS),
+            'service': random.choice(SERVICES),
+            'client_ip': random.choice(IPS),
+            'method': random.choice(METHODS),
+            'path': random.choice(PATHS),
+            'status_code': random.choice(STATUSES),
+            'response_time': random.randint(10, 2500),
+            'response_size': random.randint(100, 10000),
+            'message': random.choice(MESSAGES),
+            'user_agent': random.choice(USER_AGENTS),
+            'request_id': f'req_{random.randint(10000, 99999)}'
+        }
+        lines.append(json.dumps(record, ensure_ascii=False))
+    return '\n'.join(lines)
 
 
-def gen_syslog() -> str:
-    ts = random_time().strftime("%b %d %H:%M:%S")
-    host = f"srv-{random.randint(1, 5)}"
-    ip = random.choice(IPS)
-    method = random.choice(METHODS)
-    path = random.choice(PATHS)
-    code = random.choice(STATUS_CODES)
-    size = random.randint(100, 10000)
-    return f"{ts} {host} app[{random.randint(1000, 9999)}]: {ip} {method} {path} {code} {size}"
+def generate_csv_logs(n):
+    lines = []
+    for _ in range(n):
+        dt = random_datetime()
+        line = f'{random.choice(IPS)},{random.choice(METHODS)},{random.choice(PATHS)},{random.choice(STATUSES)},{random.randint(100, 10000)},{random.randint(10, 2500)},{dt.strftime("%Y-%m-%d %H:%M:%S")}'
+        lines.append(line)
+    return '\n'.join(lines)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="生成模拟测试日志。")
-    parser.add_argument("-n", "--count", type=int, default=1000)
-    parser.add_argument(
-        "-f",
-        "--format",
-        choices=["nginx", "json", "csv", "syslog"],
-        default="nginx",
-    )
-    parser.add_argument("-o", "--output", required=True, help="输出文件路径")
-    args = parser.parse_args()
-
-    factory = {
-        "nginx": gen_nginx,
-        "json": gen_json,
-        "csv": gen_csv,
-        "syslog": gen_syslog,
-    }[args.format]
-
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8") as f:
-        for _ in range(args.count):
-            f.write(factory() + "\n")
-
-    print(f"[DONE] 已生成 {args.count} 条 {args.format} 日志 -> {output}")
-    return 0
+def generate_pipe_logs(n):
+    lines = []
+    for _ in range(n):
+        dt = random_datetime()
+        line = f'{random.choice(IPS)}|{random.choice(METHODS)}|{random.choice(PATHS)}|{random.choice(STATUSES)}|{random.randint(100, 10000)}|{random.randint(10, 2500)}|{dt.strftime("%Y-%m-%d %H:%M:%S")}'
+        lines.append(line)
+    return '\n'.join(lines)
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def generate_tsv_logs(n):
+    lines = []
+    for _ in range(n):
+        dt = random_datetime()
+        line = f'{random.choice(IPS)}\t{random.choice(METHODS)}\t{random.choice(PATHS)}\t{random.choice(STATUSES)}\t{random.randint(100, 10000)}\t{random.randint(10, 2500)}\t{dt.strftime("%Y-%m-%d %H:%M:%S")}'
+        lines.append(line)
+    return '\n'.join(lines)
+
+
+def generate_semicolon_logs(n):
+    lines = []
+    for _ in range(n):
+        dt = random_datetime()
+        line = f'{random.choice(IPS)};{random.choice(METHODS)};{random.choice(PATHS)};{random.choice(STATUSES)};{random.randint(100, 10000)};{random.randint(10, 2500)};{dt.strftime("%Y-%m-%d %H:%M:%S")}'
+        lines.append(line)
+    return '\n'.join(lines)
+
+
+def generate_plain_logs(n):
+    """Generate plain text logs with a few consistent simple formats."""
+    lines = []
+    formats = [
+        lambda dt, ip, method, path, status, size, time:
+            f'[{dt.strftime("%Y-%m-%d %H:%M:%S")}] {ip} - {method} {path} - {status} - {size} - {time}ms',
+        lambda dt, ip, method, path, status, size, time:
+            f'{dt.strftime("%Y-%m-%d %H:%M:%S")} - {ip} - {method} {path} - Status: {status} - Size: {size} - Time: {time}ms',
+        lambda dt, ip, method, path, status, size, time:
+            f'{ip} [{dt.strftime("%Y-%m-%d %H:%M:%S")}] "{method} {path}" {status} {size} {time}',
+        lambda dt, ip, method, path, status, size, time:
+            f'Request from {ip} at {dt.strftime("%Y-%m-%d %H:%M:%S")}: {method} {path} -> {status} ({size} bytes, {time}ms)',
+    ]
+    for _ in range(n):
+        dt = random_datetime()
+        fmt = random.choice(formats)
+        line = fmt(dt, random.choice(IPS), random.choice(METHODS), random.choice(PATHS),
+                   random.choice(STATUSES), random.randint(100, 10000), random.randint(10, 2500))
+        lines.append(line)
+    return '\n'.join(lines)
+
+
+def generate_syslog_logs(n):
+    lines = []
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    for _ in range(n):
+        dt = random_datetime()
+        mon = months[dt.month - 1]
+        day = dt.day
+        time_str = dt.strftime('%H:%M:%S')
+        host = random.choice(HOSTS)
+        service = random.choice(SERVICES)
+        pid = random.randint(1000, 9999)
+        line = f'{mon} {day:2d} {time_str} {host} {service}[{pid}]: {random.choice(IPS)} {random.choice(METHODS)} {random.choice(PATHS)} {random.choice(STATUSES)} {random.randint(100, 10000)}'
+        lines.append(line)
+    return '\n'.join(lines)
+
+
+def write_file(filename, content):
+    filepath = os.path.join(OUTPUT_DIR, filename)
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(content)
+    size_kb = os.path.getsize(filepath) / 1024
+    print(f'  Written {filepath} ({size_kb:.1f} KB, {len(content.splitlines())} lines)')
+
+
+def main():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    print(f'Generating {NUM_LINES} lines per format into {OUTPUT_DIR}...')
+
+    print('Generating Apache logs...')
+    write_file('test_apache.log', generate_apache_logs(NUM_LINES))
+
+    print('Generating Nginx logs...')
+    write_file('test_nginx.log', generate_nginx_logs(NUM_LINES))
+
+    print('Generating JSON logs...')
+    write_file('test_json.log', generate_json_logs(NUM_LINES))
+
+    print('Generating CSV logs...')
+    write_file('test_csv.log', generate_csv_logs(NUM_LINES))
+
+    print('Generating Pipe-delimited logs...')
+    write_file('test_pipe.log', generate_pipe_logs(NUM_LINES))
+
+    print('Generating TSV logs...')
+    write_file('test_tsv.log', generate_tsv_logs(NUM_LINES))
+
+    print('Generating Semicolon-delimited logs...')
+    write_file('test_semicolon.log', generate_semicolon_logs(NUM_LINES))
+
+    print('Generating Plain text logs...')
+    write_file('test_plain.log', generate_plain_logs(NUM_LINES))
+
+    print('Generating Syslog logs...')
+    write_file('test_syslog.log', generate_syslog_logs(NUM_LINES))
+
+    print('Done!')
+
+
+if __name__ == '__main__':
+    main()
