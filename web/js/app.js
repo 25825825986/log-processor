@@ -373,50 +373,7 @@ function mountConfigInterface() {
                 </div>
             </div>
 
-            <div class="config-section">
-                <div class="section-title"><i class="fas fa-tune"></i> 高级接收参数</div>
-                <div class="port-configs config-grid-2">
-                    <div class="port-item">
-                        <label>HTTP 限流（次/分钟，0 为不限）</label>
-                        <input type="number" id="receiver-http-rate" value="0" min="0" max="100000" class="form-input">
-                    </div>
-                    <div class="port-item">
-                        <label>HTTP 最大请求体（MB）</label>
-                        <input type="number" id="receiver-http-max-body" value="10" min="1" max="1024" class="form-input">
-                    </div>
-                    <div class="port-item">
-                        <label>接收缓冲区（字节）</label>
-                        <input type="number" id="receiver-buffer" value="8192" min="1024" max="65536" class="form-input">
-                    </div>
-                    <div class="port-item">
-                        <label>最大并发连接数</label>
-                        <input type="number" id="receiver-max-connections" value="1000" min="1" max="100000" class="form-input">
-                    </div>
-                </div>
-            </div>
-
-            <div class="config-section">
-                <div class="section-title"><i class="fas fa-file-waveform"></i> 文件监控</div>
-                <div class="security-configs">
-                    <div class="switch-item">
-                        <div class="switch-info">
-                            <i class="fas fa-file-lines"></i>
-                            <div>
-                                <div class="switch-name">启用文件追加监控</div>
-                                <div class="switch-desc">轮询监控指定文件的新追加内容，适合本地日志文件接入。</div>
-                            </div>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" id="receiver-file-watcher">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="form-group">
-                        <label>监控路径（每行一个）</label>
-                        <textarea id="receiver-watch-paths" class="form-input config-textarea" placeholder="./logs/access.log&#10;./logs/error.log"></textarea>
-                    </div>
-                </div>
-            </div>
+        </div>
         </div>
 
         <div id="config-storage" class="config-panel" style="display: none;">
@@ -919,10 +876,6 @@ const NUMBER_INPUT_LIMITS = {
     'receiver-tcp-port': { min: 1, max: 65535 },
     'receiver-udp-port': { min: 1, max: 65535 },
     'receiver-http-port': { min: 1, max: 65535 },
-    'receiver-http-rate': { min: 0, max: 100000 },
-    'receiver-http-max-body': { min: 1, max: 1024 },
-    'receiver-buffer': { min: 1024, max: 65536 },
-    'receiver-max-connections': { min: 1, max: 100000 },
     'storage-retention': { min: 1, max: 8760 }, // 最长支持 8760 小时
     'display-page-size': { min: 10, max: 500 },
     'display-refresh-interval': { min: 0, max: 3600 },
@@ -1093,16 +1046,6 @@ function initConfigInteractions() {
             btn.classList.add('active');
             const delimiterInput = document.getElementById('parser-delimiter');
             if (delimiterInput) delimiterInput.value = btn.dataset.value;
-        });
-    });
-    
-    // 缓冲区快捷按钮
-    document.querySelectorAll('.buffer-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.buffer-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const bufferInput = document.getElementById('receiver-buffer');
-            if (bufferInput) bufferInput.value = btn.dataset.value;
         });
     });
     
@@ -2823,19 +2766,6 @@ async function loadConfig() {
         if (httpPortInput) httpPortInput.value = config.receiver?.http_port || 9002;
         if (httpTokenInput) httpTokenInput.value = config.receiver?.http_auth_token || '';
         if (httpIpsInput) httpIpsInput.value = (config.receiver?.http_allowed_ips || []).join(', ');
-        const httpRateInput = document.getElementById('receiver-http-rate');
-        const httpMaxBodyInput = document.getElementById('receiver-http-max-body');
-        const receiverBufferInput = document.getElementById('receiver-buffer');
-        const receiverMaxConnectionsInput = document.getElementById('receiver-max-connections');
-        const fileWatcherInput = document.getElementById('receiver-file-watcher');
-        const watchPathsInput = document.getElementById('receiver-watch-paths');
-        if (httpRateInput) httpRateInput.value = config.receiver?.http_rate_limit ?? 0;
-        if (httpMaxBodyInput) httpMaxBodyInput.value = Math.max(1, Math.round((config.receiver?.http_max_body_size || 10 * 1024 * 1024) / (1024 * 1024)));
-        if (receiverBufferInput) receiverBufferInput.value = config.receiver?.buffer_size || 8192;
-        if (receiverMaxConnectionsInput) receiverMaxConnectionsInput.value = config.receiver?.max_connections || 1000;
-        if (fileWatcherInput) fileWatcherInput.checked = config.receiver?.file_watcher_enabled ?? false;
-        if (watchPathsInput) watchPathsInput.value = (config.receiver?.watch_paths || []).join('\n');
-        
         // Storage 配置
         const dbPath = config.storage?.db_path || './data/logs.db';
         const dbPathInput = document.getElementById('storage-db-path');
@@ -2925,16 +2855,7 @@ async function saveConfig() {
             http_enabled: document.getElementById('receiver-http')?.checked ?? true,
             http_port: parseInt(document.getElementById('receiver-http-port')?.value) || 9002,
             http_auth_token: document.getElementById('receiver-http-token')?.value || '',
-            http_allowed_ips: (document.getElementById('receiver-http-ips')?.value || '').split(',').map(s => s.trim()).filter(s => s),
-            http_rate_limit: parseInt(document.getElementById('receiver-http-rate')?.value) || 0,
-            http_max_body_size: (parseInt(document.getElementById('receiver-http-max-body')?.value) || 10) * 1024 * 1024,
-            buffer_size: parseInt(document.getElementById('receiver-buffer')?.value) || 8192,
-            max_connections: parseInt(document.getElementById('receiver-max-connections')?.value) || 1000,
-            file_watcher_enabled: document.getElementById('receiver-file-watcher')?.checked ?? false,
-            watch_paths: (document.getElementById('receiver-watch-paths')?.value || '')
-                .split(/\r?\n/)
-                .map(line => line.trim())
-                .filter(line => line)
+            http_allowed_ips: (document.getElementById('receiver-http-ips')?.value || '').split(',').map(s => s.trim()).filter(s => s)
         },
         storage: {
             db_path: document.getElementById('storage-db-path')?.value || './data/logs.db',

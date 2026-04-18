@@ -93,17 +93,8 @@ func (m *Manager) Start(handler Handler) error {
 		}()
 	}
 
-	if m.config.FileWatcherEnabled && len(m.config.WatchPaths) > 0 {
-		fileWatcher := NewFileWatcherReceiver(m.config.WatchPaths, time.Second)
-		m.receivers = append(m.receivers, fileWatcher)
-		m.wg.Add(1)
-		go func() {
-			defer m.wg.Done()
-			if err := fileWatcher.Start(m.handler); err != nil {
-				log.Printf("File watcher receiver error: %v", err)
-			}
-		}()
-	}
+	// 文件监控功能已移除（答辩演示不需要）
+	// if m.config.FileWatcherEnabled && len(m.config.WatchPaths) > 0 { ... }
 
 	return nil
 }

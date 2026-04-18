@@ -219,7 +219,7 @@ func (s *Server) updateConfig(c *gin.Context) {
 	}
 
 	oldConfig := s.config.Get()
-	mergedConfig := oldConfig
+	mergedConfig := s.config.Get()
 
 	if err := mergeConfigSection(jsonConfig, "server", &mergedConfig.Server); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -694,10 +694,7 @@ func (s *Server) getStatus(c *gin.Context) {
 				"http_port":            cfg.Receiver.HTTPPort,
 				"http_rate_limit":      cfg.Receiver.HTTPRateLimit,
 				"http_max_body_size":   cfg.Receiver.HTTPMaxBodySize,
-				"buffer_size":          cfg.Receiver.BufferSize,
-				"max_connections":      cfg.Receiver.MaxConnections,
-				"file_watcher_enabled": cfg.Receiver.FileWatcherEnabled,
-				"watch_paths":          cfg.Receiver.WatchPaths,
+					// 高级接收参数与文件监控已隐藏（答辩演示不需要）
 			},
 			"storage": cfg.Storage,
 		},
@@ -870,19 +867,11 @@ func compareReceiverConfig(a, b config.ReceiverConfig) bool {
 	if a.HTTPMaxBodySize != b.HTTPMaxBodySize {
 		return false
 	}
-	if a.BufferSize != b.BufferSize {
-		return false
-	}
-	if a.FileWatcherEnabled != b.FileWatcherEnabled {
-		return false
-	}
-	if a.MaxConnections != b.MaxConnections {
-		return false
-	}
+	// 高级接收参数与文件监控不参与差异化重启判断（答辩演示不需要）
 	if !compareStringSlices(a.HTTPAllowedIPs, b.HTTPAllowedIPs) {
 		return false
 	}
-	return compareStringSlices(a.WatchPaths, b.WatchPaths)
+	return true
 }
 
 // restartReceivers 重启接收器
