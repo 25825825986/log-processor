@@ -1501,6 +1501,17 @@ async function handleFiles(files) {
             const resultItem = document.createElement('div');
             resultItem.className = 'result-item';
 
+            // 组装失败原因详情（仅在部分成功时展示详细原因，完全失败时保持简洁）
+            let failureDetail = '';
+            if (isSuccess && dropped > 0) {
+                if (result.failure_reasons) {
+                    failureDetail += `<br><span style="color: var(--warning); font-size: 12px;">失败原因：${result.failure_reasons}</span>`;
+                }
+                if (result.failure_samples && result.failure_samples.length > 0) {
+                    failureDetail += `<br><span style="color: var(--text-secondary); font-size: 11px;">示例：${result.failure_samples.join(' / ')}</span>`;
+                }
+            }
+
             if (isSuccess) {
                 if (isPartial || hasWarning) {
                     resultItem.classList.add('warning');
@@ -1519,6 +1530,7 @@ async function handleFiles(files) {
                 if (hasWarning) {
                     detailText += `<br><span style="color: var(--warning); font-size: 12px;">${result.warning}</span>`;
                 }
+                detailText += failureDetail;
 
                 resultItem.innerHTML = `
                     <div class="result-icon">${isPartial ? '<i class="fas fa-exclamation-triangle"></i>' : '<i class="fas fa-check"></i>'}</div>
@@ -1534,11 +1546,16 @@ async function handleFiles(files) {
                 state.phase = isPartial || hasWarning ? 'partial' : 'completed';
             } else if (result.status === 'warning') {
                 resultItem.classList.add('warning');
+                let detailText = result.warning || '格式不匹配';
+                if (result.detected_format) {
+                    detailText += `<br><span style="color: var(--primary); font-size: 12px;">识别格式：${formatImportFormat(result.detected_format)}</span>`;
+                }
+                detailText += failureDetail;
                 resultItem.innerHTML = `
                     <div class="result-icon"><i class="fas fa-exclamation-triangle"></i></div>
                     <div class="result-info">
                         <div class="result-filename">${file.name}</div>
-                        <div class="result-detail">${result.warning || '格式不匹配'}${result.detected_format ? `<br><span style="color: var(--primary); font-size: 12px;">识别格式：${formatImportFormat(result.detected_format)}</span>` : ''}</div>
+                        <div class="result-detail">${detailText}</div>
                     </div>
                     <div class="result-count">0</div>
                 `;
@@ -1546,7 +1563,8 @@ async function handleFiles(files) {
                 state.phase = 'warning';
             } else {
                 resultItem.classList.add('error');
-                const errorMsg = result.error || result.warning || '导入失败';
+                let errorMsg = result.error || result.warning || '导入失败';
+                errorMsg += failureDetail;
                 resultItem.innerHTML = `
                     <div class="result-icon"><i class="fas fa-times"></i></div>
                     <div class="result-info">

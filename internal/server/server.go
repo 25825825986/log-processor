@@ -1539,6 +1539,8 @@ func (s *Server) importLogsFast(c *gin.Context) {
 	acceptedCount := 0
 	droppedCount := 0
 	writtenCount := int64(0)
+	failureReasons := make(map[string]int)
+	failureSamples := make([]string, 0, 3)
 
 	for scanner.Scan() {
 		totalLines++
@@ -1556,6 +1558,16 @@ func (s *Server) importLogsFast(c *gin.Context) {
 		entry, parseErr := s.parser.ParseWithFormat(line, detectedFormat)
 		if parseErr != nil {
 			droppedCount++
+			reason := parseErr.Error()
+			failureReasons[reason]++
+			if len(failureSamples) < 3 {
+				// 记录失败样本（截断过长行）
+				sample := trimmed
+				if len(sample) > 80 {
+					sample = sample[:80] + "..."
+				}
+				failureSamples = append(failureSamples, fmt.Sprintf("[%s] %s", reason, sample))
+			}
 			s.updateImportProgress(importID, int64(acceptedCount), writtenCount, int64(droppedCount), int64(totalLines), targetLines, limitReached, "processing", "")
 			continue
 		}
@@ -1605,6 +1617,33 @@ func (s *Server) importLogsFast(c *gin.Context) {
 		actualImported = countAfter - countBefore
 	}
 
+	// 生成失败原因摘要
+	failureReasonSummary := ""
+	if len(failureReasons) > 0 {
+		// 取出现次数最多的前 3 个原因
+		type reasonCount struct {
+			reason string
+			count  int
+		}
+		reasons := make([]reasonCount, 0, len(failureReasons))
+		for r, c := range failureReasons {
+			reasons = append(reasons, reasonCount{r, c})
+		}
+		// 简单冒泡排序取前3
+		for i := 0; i < len(reasons)-1; i++ {
+			for j := i + 1; j < len(reasons); j++ {
+				if reasons[j].count > reasons[i].count {
+					reasons[i], reasons[j] = reasons[j], reasons[i]
+				}
+			}
+		}
+		parts := make([]string, 0, 3)
+		for i := 0; i < len(reasons) && i < 3; i++ {
+			parts = append(parts, fmt.Sprintf("%s（%d 行）", reasons[i].reason, reasons[i].count))
+		}
+		failureReasonSummary = strings.Join(parts, "；")
+	}
+
 	responseStatus := "ok"
 	warningMsg := ""
 	missedCount := int64(droppedCount)
@@ -1622,11 +1661,17 @@ func (s *Server) importLogsFast(c *gin.Context) {
 		if actualImported == 0 && droppedCount > 0 {
 			// 全部解析失败，大概率不是日志文件
 			responseStatus = "error"
-			warningMsg = fmt.Sprintf("未能解析任何有效日志（共 %d 行）。该文件似乎不是标准的日志格式，请检查文件内容或前往配置页面调整解析格式。", targetLines)
+			warningMsg = fmt.Sprintf("未能解析任何有效日志（共 %d 行），该文件似乎不是标准的日志格式。", targetLines)
 		} else if failureRate > 0.8 {
 			// 失败率超过 80%，给出警告
 			responseStatus = "warning"
-			warningMsg = fmt.Sprintf("解析失败率过高（%.0f%%，成功 %d / 失败 %d）。文件内容可能不符合当前解析格式，建议检查文件或调整配置。", failureRate*100, acceptedCount, droppedCount)
+			warningMsg = fmt.Sprintf("解析失败率过高（%.0f%%），文件内容可能不符合当前解析格式。", failureRate*100)
+		} else if droppedCount > 0 && failureReasonSummary != "" {
+			// 普通部分失败，也附加上失败原因
+			if warningMsg != "" {
+				warningMsg += "；"
+			}
+			warningMsg += "失败原因：" + failureReasonSummary
 		}
 	}
 
@@ -1655,17 +1700,19 @@ func (s *Server) importLogsFast(c *gin.Context) {
 		file.Filename, totalLines, acceptedCount, actualImported, droppedCount, detectedFormat)
 
 	c.JSON(http.StatusOK, gin.H{
-		"import_id":       importID,
-		"status":          responseStatus,
-		"lines":           totalLines,
-		"accepted":        acceptedCount,
-		"imported":        actualImported,
-		"dropped":         droppedCount,
-		"max_lines":       maxImportLines,
-		"limit_reached":   limitReached,
-		"file":            file.Filename,
-		"detected_format": detectedFormat,
-		"warning":         warningMsg,
+		"import_id":        importID,
+		"status":           responseStatus,
+		"lines":            totalLines,
+		"accepted":         acceptedCount,
+		"imported":         actualImported,
+		"dropped":          droppedCount,
+		"max_lines":        maxImportLines,
+		"limit_reached":    limitReached,
+		"file":             file.Filename,
+		"detected_format":  detectedFormat,
+		"warning":          warningMsg,
+		"failure_reasons":  failureReasonSummary,
+		"failure_samples":  failureSamples,
 	})
 }
 
