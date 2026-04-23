@@ -1666,12 +1666,6 @@ func (s *Server) importLogsFast(c *gin.Context) {
 			// 失败率超过 80%，给出警告
 			responseStatus = "warning"
 			warningMsg = fmt.Sprintf("解析失败率过高（%.0f%%），文件内容可能不符合当前解析格式。", failureRate*100)
-		} else if droppedCount > 0 && failureReasonSummary != "" {
-			// 普通部分失败，也附加上失败原因
-			if warningMsg != "" {
-				warningMsg += "；"
-			}
-			warningMsg += "失败原因：" + failureReasonSummary
 		}
 	}
 

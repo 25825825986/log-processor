@@ -121,6 +121,12 @@ func (p *LogParser) parseAutoDelimited(line string, entry *models.LogEntry, form
 		}
 	}
 
+	// 有效性校验：如果一条分隔符日志完全无法提取任何有效字段，
+	// 大概率是表头行或格式不符，视为解析失败
+	if entry.Timestamp.IsZero() && entry.ClientIP == "" && entry.Method == "" && entry.StatusCode == 0 {
+		return entry, fmt.Errorf("无法识别分隔符日志格式，可能是表头行或字段内容不匹配")
+	}
+
 	return entry, nil
 }
 

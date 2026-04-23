@@ -1501,15 +1501,10 @@ async function handleFiles(files) {
             const resultItem = document.createElement('div');
             resultItem.className = 'result-item';
 
-            // 组装失败原因详情（仅在部分成功时展示详细原因，完全失败时保持简洁）
+            // 组装失败原因详情（仅在部分成功时展示简洁原因，完全失败时保持简洁）
             let failureDetail = '';
-            if (isSuccess && dropped > 0) {
-                if (result.failure_reasons) {
-                    failureDetail += `<br><span style="color: var(--warning); font-size: 12px;">失败原因：${result.failure_reasons}</span>`;
-                }
-                if (result.failure_samples && result.failure_samples.length > 0) {
-                    failureDetail += `<br><span style="color: var(--text-secondary); font-size: 11px;">示例：${result.failure_samples.join(' / ')}</span>`;
-                }
+            if (isSuccess && dropped > 0 && result.failure_reasons) {
+                failureDetail += `<br><span style="color: var(--warning); font-size: 12px;">${result.failure_reasons}</span>`;
             }
 
             if (isSuccess) {
