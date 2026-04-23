@@ -1615,11 +1615,26 @@ func (s *Server) importLogsFast(c *gin.Context) {
 		responseStatus = "partial"
 		warningMsg = fmt.Sprintf("解析成功 %d 条，未导入 %d 条", acceptedCount, missedCount)
 	}
+
+	// 解析质量检查：如果解析失败率过高，给出明确提示
+	if targetLines > 0 {
+		failureRate := float64(droppedCount) / float64(targetLines)
+		if actualImported == 0 && droppedCount > 0 {
+			// 全部解析失败，大概率不是日志文件
+			responseStatus = "error"
+			warningMsg = fmt.Sprintf("未能解析任何有效日志（共 %d 行）。该文件似乎不是标准的日志格式，请检查文件内容或前往配置页面调整解析格式。", targetLines)
+		} else if failureRate > 0.8 {
+			// 失败率超过 80%，给出警告
+			responseStatus = "warning"
+			warningMsg = fmt.Sprintf("解析失败率过高（%.0f%%，成功 %d / 失败 %d）。文件内容可能不符合当前解析格式，建议检查文件或调整配置。", failureRate*100, acceptedCount, droppedCount)
+		}
+	}
+
 	if limitReached {
 		limitWarning := fmt.Sprintf("单次最多导入 %d 条，已自动截取前 %d 条有效日志", maxImportLines, maxImportLines)
 		if warningMsg == "" {
 			warningMsg = limitWarning
-		} else {
+		} else if responseStatus != "error" {
 			warningMsg = warningMsg + "；" + limitWarning
 		}
 		if responseStatus == "ok" {
@@ -1628,8 +1643,10 @@ func (s *Server) importLogsFast(c *gin.Context) {
 	}
 
 	finalPhase := "completed"
-	if responseStatus == "partial" {
+	if responseStatus == "partial" || responseStatus == "warning" {
 		finalPhase = "partial"
+	} else if responseStatus == "error" {
+		finalPhase = "error"
 	}
 	s.finishImportProgress(importID, finalPhase, warningMsg)
 	s.updateImportProgress(importID, int64(acceptedCount), actualImported, int64(droppedCount), int64(totalLines), targetLines, limitReached, finalPhase, warningMsg)

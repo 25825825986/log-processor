@@ -1546,11 +1546,12 @@ async function handleFiles(files) {
                 state.phase = 'warning';
             } else {
                 resultItem.classList.add('error');
+                const errorMsg = result.error || result.warning || '导入失败';
                 resultItem.innerHTML = `
                     <div class="result-icon"><i class="fas fa-times"></i></div>
                     <div class="result-info">
                         <div class="result-filename">${file.name}</div>
-                        <div class="result-detail">${result.error || '导入失败'}</div>
+                        <div class="result-detail">${errorMsg}</div>
                     </div>
                 `;
                 failFiles += 1;

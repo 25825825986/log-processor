@@ -256,12 +256,55 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 		entry.Method = method
 	}
 
-	// 4. 查找状态码
+	// 4. 查找状态码（Nginx/Apache 风格）
 	statusPattern := regexp.MustCompile(`"\s+(\d{3})\s+`)
 	if matches := statusPattern.FindStringSubmatch(line); len(matches) > 1 {
 		if code, _ := strconv.Atoi(matches[1]); code > 0 {
 			entry.StatusCode = code
 		}
+	}
+
+	// 5. 查找状态码（键值对风格，如 Status: 200）
+	if entry.StatusCode == 0 {
+		statusPattern2 := regexp.MustCompile(`(?i)(?:status[:\s]+)(\d{3})`)
+		if matches := statusPattern2.FindStringSubmatch(line); len(matches) > 1 {
+			if code, _ := strconv.Atoi(matches[1]); code > 0 {
+				entry.StatusCode = code
+			}
+		}
+	}
+
+	// 6. 查找响应大小（键值对风格，如 Size: 1234）
+	if entry.ResponseSize == 0 {
+		sizePattern := regexp.MustCompile(`(?i)(?:size[:\s]+)(\d+)`)
+		if matches := sizePattern.FindStringSubmatch(line); len(matches) > 1 {
+			if size, _ := strconv.ParseInt(matches[1], 10, 64); size > 0 {
+				entry.ResponseSize = size
+			}
+		}
+	}
+
+	// 7. 查找响应时间（键值对风格，如 Time: 123）
+	if entry.ResponseTime == 0 {
+		timePattern := regexp.MustCompile(`(?i)(?:time[:\s]+)(\d+)`)
+		if matches := timePattern.FindStringSubmatch(line); len(matches) > 1 {
+			if rt, _ := strconv.ParseInt(matches[1], 10, 64); rt > 0 {
+				entry.ResponseTime = rt
+			}
+		}
+	}
+
+	// 8. 查找路径（以 / 开头的字符串）
+	if entry.Path == "" {
+		pathPattern := regexp.MustCompile(`\s(/[\w/._~%&?=-]*)`)
+		if matches := pathPattern.FindStringSubmatch(line); len(matches) > 1 {
+			entry.Path = matches[1]
+		}
+	}
+
+	// 有效性校验：如果一条日志完全无法提取任何有效字段，则认为解析失败
+	if entry.Timestamp.IsZero() && entry.ClientIP == "" && entry.Method == "" && entry.StatusCode == 0 {
+		return entry, fmt.Errorf("无法识别日志格式，未提取到有效字段")
 	}
 
 	return entry, nil
