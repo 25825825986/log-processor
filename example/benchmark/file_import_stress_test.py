@@ -87,9 +87,9 @@ def monitor_import(import_id: str, stop: threading.Event) -> None:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 phase = data.get("phase", "unknown")
-                parsed = data.get("parsed_count", 0)
-                written = data.get("written_count", 0)
-                target = data.get("target_count", 0)
+                parsed = data.get("parsed_lines", 0)
+                written = data.get("written_lines", 0)
+                target = data.get("target_lines", 0)
                 first_ok = True
                 if phase != last_phase or phase in ("completed", "error", "partial"):
                     print(f"  [{import_id}] phase={phase} parsed={parsed} written={written} target={target}")
@@ -140,7 +140,7 @@ def worker(args, file_path: str, wid: int, stats: ImportStats):
 
     try:
         result = upload_file(file_path, import_id)
-        ok = result.get("status") in ("ok", "partial", "warning")
+        ok = result.get("status") in ("ok", "warning")
         lines = result.get("lines", 0)
         imported = result.get("imported", 0)
         stats.add(ok, lines, imported)
