@@ -4,102 +4,43 @@
 
 ## 特性
 
-- **高并发处理**：基于 Goroutine + Channel 实现，单机可处理数万 QPS
-- **可视化配置**：Web 界面支持实时配置解析规则、清洗规则和并发参数
-- **多源数据接收**：支持 TCP、UDP、HTTP 协议接收，同时支持文件导入
-- **灵活的数据查询**：支持按时间、接口、状态码等多维度筛选
-- **数据导出**：支持导出为 Excel、CSV、JSON 格式
-- **轻量级存储**：基于 SQLite，无需外部数据库依赖
-- **可扩展解析**：支持 Nginx、Apache、JSON、CSV 及自定义格式
+- **高并发处理**：基于 Goroutine + Channel，单机可处理数万 QPS
+- **可视化配置**：Web 界面实时配置解析规则、并发参数和告警阈值
+- **多源接收**：支持 TCP、UDP、HTTP 协议及文件导入
+- **智能解析**：自动识别 Nginx、Apache、JSON、CSV、Syslog 等格式
+- **数据导出**：支持 Excel、CSV、JSON 格式
+- **轻量级存储**：基于 SQLite，支持数据保留策略和自动压缩
+- **溢出保护**：内存队列满时自动溢写到磁盘，防止数据丢失
+- **配置热更新**：通过 Web 或 API 修改后即时生效
 
 ## 快速开始
 
-### 1. 安装依赖
-
 ```bash
-# 安装 Go 1.21+
-# https://golang.org/dl/
-
-# 克隆项目
-git clone <repository>
-cd log-processor
-
-# 下载依赖
+# 安装 Go 1.21+，克隆项目并下载依赖
 go mod download
+
+# 启动服务（基础配置）
+go run cmd/server/main.go -config ./config.example.json
+
+# 或高性能配置
+go run cmd/server/main.go -config ./config.optimized.json
 ```
 
-### 2. 启动服务
+访问 http://localhost:8080 打开 Web 界面。
+
+**生成测试数据：**
 
 ```bash
-go run cmd/server/main.go
+cd example/tools
+python generate_test_logs.py -n 10000 -f nginx -o ../../temp/test.log
 ```
 
-或使用配置文件：
-
-```bash
-go run cmd/server/main.go -config ./config.json
-```
-
-### 3. 导入测试数据
-
-**使用开源数据集（推荐用于学术研究和功能测试）：**
-
-```bash
-# 方法1: 使用 NASA 公开日志（1995年真实数据，约130万条记录）
-cd example
-wget ftp://ita.ee.lbl.gov/traces/NASA_access_log_Jul95.gz
-gunzip NASA_access_log_Jul95.gz
-
-# 方法2: 生成自定义模拟数据
-python example/generate_logs.py -n 10000 -f nginx -o my_logs.txt
-
-# 方法3: 使用格式转换脚本处理其他数据集
-python example/convert_logs.py input.csv output.txt --input-format csv
-```
-
-更多数据集信息见 [example/DATASETS.md](example/DATASETS.md)
-
-### 4. 访问 Web 界面
-
-打开浏览器访问：http://localhost:8080
-
-- **概览**：查看统计图表、状态码分布
-- **查询**：按时间、状态码等筛选日志
-- **导入**：拖拽上传日志文件
-- **配置**：修改解析格式、调整并发参数
+更多工具见 [example/README.md](example/README.md)。
 
 ## 系统架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      日志数据源                               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │ TCP端口  │  │ UDP端口  │  │ HTTP端口 │  │ 文件导入 │    │
-│  │  :9000   │  │  :9001   │  │  :9002   │  │          │    │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘    │
-└───────┼─────────────┼─────────────┼─────────────┼──────────┘
-        │             │             │             │
-        └─────────────┴─────────────┴─────────────┘
-                          │
-                    ┌─────┴─────┐
-                    │ 接收器层   │  Receiver (TCP/UDP/HTTP/File)
-                    └─────┬─────┘
-                          │
-                    ┌─────┴─────┐
-                    │ 解析器层   │  Parser (Nginx/Apache/JSON/CSV/Custom)
-                    └─────┬─────┘
-                          │
-                    ┌─────┴─────┐
-                    │ 处理器层   │  Processor (清洗、过滤、批处理)
-                    └─────┬─────┘
-                          │
-                    ┌─────┴─────┐
-                    │ 存储层     │  Storage (SQLite)
-                    └─────┬─────┘
-                          │
-                    ┌─────┴─────┐
-                    │ API/Web层 │  REST API + 可视化界面
-                    └───────────┘
+日志数据源 -> 接收器层 -> 解析器层 -> 处理器层 -> 存储层 -> API/Web层
 ```
 
 ## 配置说明
@@ -115,119 +56,81 @@ python example/convert_logs.py input.csv output.txt --input-format csv
 
 ### HTTP 接收器安全配置
 
-为了防止未授权访问和恶意注入，HTTP 接收器支持以下安全机制：
-
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `http_auth_token` | 访问认证 Token，为空则不启用 | 空 |
-| `http_allowed_ips` | IP 白名单列表，为空则不限制 | 空 |
-| `http_max_body_size` | 最大请求体大小（字节） | 10MB |
-| `http_rate_limit` | 每 IP 每分钟最大请求数，0 为不限制 | 0 |
-
-#### 使用认证 Token 发送日志
-
-```bash
-# 方式1: Header 传递 Token
-curl -X POST http://localhost:9002/logs \
-  -H "X-Auth-Token: your-secret-token" \
-  -H "Content-Type: text/plain" \
-  -d 'your log line'
-
-# 方式2: Query 参数传递 Token
-curl -X POST "http://localhost:9002/logs?token=your-secret-token" \
-  -H "Content-Type: text/plain" \
-  -d 'your log line'
-```
+| `http_auth_token` | 访问认证 Token | 空 |
+| `http_allowed_ips` | IP 白名单 | 空 |
+| `http_max_body_size` | 最大请求体 | 10MB |
+| `http_rate_limit` | 每 IP 每分钟限制 | 0 |
 
 ### 配置文件示例
 
 ```json
 {
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8080
-  },
-  "parser": {
-    "format": "nginx",
-    "delimiter": " ",
-    "time_format": "02/Jan/2006:15:04:05 -0700",
-    "field_mapping": {
-      "0": "client_ip",
-      "3": "timestamp",
-      "4": "method",
-      "5": "path"
-    }
-  },
+  "server": { "host": "0.0.0.0", "port": 8080 },
+  "parser": { "format": "auto" },
   "processor": {
-    "worker_count": 10,
-    "batch_size": 100,
-    "batch_timeout": 1000,
-    "clean_rules": [],
-    "filter_rules": []
+    "worker_count": 20, "batch_size": 2000, "batch_timeout": 500,
+    "overflow_enabled": true, "overflow_dir": "./data/overflow",
+    "overflow_max_disk_mb": 512, "clean_rules": [], "filter_rules": []
   },
+  "alert": { "slow_threshold": 1000, "error_rate_threshold": 5 },
+  "display": { "page_size": 20, "refresh_interval": 30 },
+  "import": { "concurrency": 1, "max_lines": 100000 },
+  "storage": { "type": "sqlite", "db_path": "./data/logs.db", "retention_hours": 168 },
   "receiver": {
-    "tcp_enabled": true,
-    "tcp_port": 9000,
-    "udp_enabled": true,
-    "udp_port": 9001,
-    "http_enabled": true,
-    "http_port": 9002,
+    "tcp_enabled": true, "tcp_port": 9000,
+    "udp_enabled": true, "udp_port": 9001,
+    "http_enabled": true, "http_port": 9002,
     "buffer_size": 8192
-  },
-  "storage": {
-    "type": "sqlite",
-    "db_path": "./data/logs.db",
-    "retention_hours": 168
   }
 }
 ```
 
 ## API 接口
 
-### 配置管理
+### 配置与状态
+- `GET /api/config` - 获取配置
+- `POST /api/config` - 更新配置（热生效）
+- `GET /api/status` - 系统状态
+- `GET /metrics` - Prometheus 指标
 
-- `GET /api/config` - 获取当前配置
-- `POST /api/config` - 更新配置
-
-### 日志查询
-
-- `GET /api/logs` - 查询日志
-  - 参数: `start_time`, `end_time`, `methods`, `status_codes`, `keyword`, `limit`, `offset`
+### 日志查询与管理
+- `GET /api/logs` - 查询日志（支持时间、方法、路径、状态码、关键字等筛选）
 - `POST /api/logs/import` - 导入日志文件
+- `GET /api/logs/import/progress?id={id}` - 导入进度
+- `DELETE /api/logs/:id` - 删除单条日志
+- `DELETE /api/logs` - 清空所有日志
 
-### 统计分析
-
-- `GET /api/statistics` - 获取统计数据
-
-### 数据导出
-
-- `GET /api/export/formats` - 获取支持的导出格式
+### 统计与导出
+- `GET /api/statistics` - 统计数据
+- `GET /api/export/formats` - 支持的导出格式
 - `POST /api/export` - 导出数据
 
-### 系统状态
+### 接收器与存储
+- `POST /api/receiver/start` - 启动接收器
+- `POST /api/receiver/stop` - 停止接收器
+- `GET /api/storage/info` - 存储信息
+- `POST /api/storage/compact` - 压缩数据库
 
-- `GET /api/status` - 获取系统状态
+### 压测
+- `POST /api/benchmark/run` - 运行压测
+- `GET /api/benchmark/report` - 压测报告
 
 ## 日志发送示例
 
-### TCP 发送
-
+### TCP
 ```bash
-# 使用 nc 发送日志
 echo '127.0.0.1 - - [04/Mar/2024:10:30:00 +0800] "GET /api/users HTTP/1.1" 200 1234' | nc localhost 9000
 ```
 
-### UDP 发送
-
+### UDP
 ```bash
-# 使用 nc 发送 UDP 日志
 echo '<14>Mar  4 10:30:00 server app[1234]: {"level":"info","msg":"user login"}' | nc -u localhost 9001
 ```
 
-### HTTP 发送
-
+### HTTP
 ```bash
-# 使用 curl 发送日志
 curl -X POST http://localhost:9002/logs \
   -H "Content-Type: text/plain" \
   -d '127.0.0.1 - - [04/Mar/2024:10:30:00 +0800] "POST /api/login HTTP/1.1" 200 256'
@@ -235,85 +138,45 @@ curl -X POST http://localhost:9002/logs \
 
 ## 性能指标
 
-### 关键改进：异步存储架构
-
-**v2.0 异步存储模式** 解决了 SQLite 单线程写入瓶颈：
-
-```
-旧架构（同步）:  输入 → 处理 → [阻塞等待SQLite] → 响应
-新架构（异步）:  输入 → 处理 → [写入内存队列] → 立即响应
-                              ↓
-                         SQLite批量写入（后台）
-```
-
-| 指标 | 同步模式 | 异步模式 (v2.0) | 提升 |
-|------|----------|-----------------|------|
-| **持续吞吐量** | ~300 QPS | **1,500+ QPS** | **5x** |
-| **突发吞吐量** | 8,000 QPS | **20,000+ QPS** | 2.5x |
-| **写入延迟** | 3-5ms | < 1ms | 5x |
-| **内存缓冲** | 100,000条 | 200,000条 | 2x |
-
-**异步存储参数**:
-- 缓冲队列：50,000 条（可配置）
-- 批量大小：1,000 条/批次
-- 刷新间隔：100ms
-- 后台写入协程：1个（SQLite 最佳实践）
-
-### 系统资源
+| 指标 | 同步模式 | 异步模式 (v2.0) |
+|------|----------|-----------------|
+| 持续吞吐量 | ~300 QPS | **1,500+ QPS** |
+| 突发吞吐量 | 8,000 QPS | **20,000+ QPS** |
+| 写入延迟 | 3-5ms | < 1ms |
+| 内存缓冲 | 100,000条 | 200,000条 |
 
 - 单节点处理能力: **1,500+ QPS 持续 / 20,000+ QPS 突发**
 - 内存占用: < 200MB (默认配置)
-- 并发连接数: 1000+
-- 数据存储: 取决于磁盘容量
 
 ## 项目结构
 
 ```
 Log_processor/
 ├── cmd/server/main.go         # 主程序入口
-├── internal/                  # 内部包
-│   ├── config/                # 配置管理
-│   ├── exporter/              # 数据导出
-│   ├── models/                # 数据模型
-│   ├── parser/                # 日志解析器
-│   ├── processor/             # 日志处理器
-│   ├── receiver/              # 网络接收器 (TCP/UDP/HTTP)
-│   ├── server/                # Web 服务器
-│   └── storage/               # 数据存储 (SQLite)
+├── internal/                  # 内部包（config/exporter/models/parser/processor/receiver/server/storage）
 ├── web/                       # 前端静态资源
-│   ├── index.html
-│   ├── css/style.css
-│   └── js/app.js
 ├── example/                   # 测试工具和数据
-│   ├── benchmark/             # 性能测试脚本
-│   ├── data/                  # 测试数据文件
-│   └── tools/                 # 辅助工具
-├── data/                      # 运行时数据（数据库）
+├── data/                      # 运行时数据（数据库、溢写文件）
 ├── logs/                      # 应用日志
-└── exports/                   # 数据导出目录
+├── exports/                   # 数据导出目录
+├── config.example.json        # 基础配置
+└── config.optimized.json      # 高性能配置
 ```
 
 ## 存储占用说明
 
 | 目录 | 用途 | 可清理 |
 |------|------|--------|
-| `data/` | SQLite 数据库 | ❌ 生产数据 |
-| `logs/` | 应用日志 | ⚠️ 保留最近2个 |
-| `exports/` | 导出的报表 | ✅ 可清理 |
-
-## 开发规范
-
-- **cmd/**: 只包含 main 包和程序入口
-- **internal/**: 核心业务逻辑，不对外暴露
-- **web/**: 纯静态文件，无后端渲染
-- **example/**: 测试和工具脚本，不参与主构建
+| `data/` | SQLite 数据库和溢写文件 | 生产数据，谨慎清理 |
+| `logs/` | 应用运行日志 | 建议保留最近 2 个文件 |
+| `exports/` | 导出的报表文件 | 可随时清理 |
+| `temp/` | 上传文件临时缓存 | 可随时清理 |
 
 ## 开发计划
 
-- [ ] 支持更多日志格式 (Syslog, LTSV)
-- [ ] 添加告警规则配置
+- [x] 格式自动识别、磁盘溢写、配置热更新、数据保留、导入进度、实时告警
 - [ ] 支持分布式部署
-- [ ] 添加实时监控仪表盘
+- [ ] 添加更多告警通道（邮件、Webhook）
 - [ ] 支持日志压缩存储
 
 ## 许可证
