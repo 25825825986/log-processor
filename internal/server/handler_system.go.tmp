@@ -1,0 +1,171 @@
+// handler_system.go - 系统状态、接收器控制、存储管理相关handlers
+package server
+
+import (
+	"log"
+	"log-processor/internal/config"
+	"log-processor/internal/models"
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+)
+
+// getStatus 获取系统状态
+func (s *Server) getStatus(c *gin.Context) {
+	cfg := s.config.Get()
+
+	processorStats := s.processor.GetStats()
+
+	status := gin.H{
+		"receiver_running": s.receiverRunning,
+		"processor_stats":  processorStats,
+		"config": gin.H{
+			"worker_count":     cfg.Processor.WorkerCount,
+			"batch_size":       cfg.Processor.BatchSize,
+			"overflow_enabled": cfg.Processor.OverflowEnabled,
+		},
+		"alert_summaries": []gin.H{},
+	}
+
+	// 获取统计信息用于告警
+	stats, err := s.storage.Statistics(models.FilterCondition{})
+	if err == nil {
+		status["alert_summaries"] = buildAlertSummaries(stats, cfg.Alert)
+	}
+
+	c.JSON(http.StatusOK, status)
+}
+
+// buildAlertSummaries 构建告警摘要
+func buildAlertSummaries(stats *models.Statistics, cfg config.AlertConfig) []gin.H {
+	var alerts []gin.H
+
+	// 慢响应告警
+	if cfg.SlowThreshold > 0 && stats.AvgResponseTime > float64(cfg.SlowThreshold) {
+		alerts = append(alerts, gin.H{
+			"level":   "warning",
+			"type":    "slow_response",
+			"message": "平均响应时间超过阈值",
+			"value":   stats.AvgResponseTime,
+			"threshold": cfg.SlowThreshold,
+		})
+	}
+
+	// 错误率告警
+	if cfg.ErrorRateThreshold > 0 && stats.TotalCount > 0 {
+		errorRate := float64(stats.ErrorCount) / float64(stats.TotalCount) * 100
+		if errorRate > float64(cfg.ErrorRateThreshold) {
+			alerts = append(alerts, gin.H{
+				"level":     "error",
+				"type":      "high_error_rate",
+				"message":   "错误率超过阈值",
+				"value":     errorRate,
+				"threshold": cfg.ErrorRateThreshold,
+			})
+		}
+	}
+
+	return alerts
+}
+
+// startReceiver 启动接收器
+func (s *Server) startReceiver(c *gin.Context) {
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+
+	if s.receiverRunning {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "receiver already running"})
+		return
+	}
+
+	cfg := s.config.GetReceiverConfig()
+	if err := s.startReceiverLocked(cfg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// stopReceiver 停止接收器
+func (s *Server) stopReceiver(c *gin.Context) {
+	s.runtimeMu.Lock()
+	defer s.runtimeMu.Unlock()
+
+	if !s.receiverRunning {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "receiver not running"})
+		return
+	}
+
+	if err := s.stopReceiverLocked(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// getStorageInfo 获取存储信息
+func (s *Server) getStorageInfo(c *gin.Context) {
+	cfg := s.config.Get()
+
+	total, _ := s.storage.Count(models.FilterCondition{})
+
+	c.JSON(http.StatusOK, gin.H{
+		"type":            cfg.Storage.Type,
+		"db_path":         cfg.Storage.DBPath,
+		"retention_hours": cfg.Storage.RetentionHours,
+		"total_logs":      total,
+	})
+}
+
+// compactStorage 压缩存储
+func (s *Server) compactStorage(c *gin.Context) {
+	if vacuumer, ok := s.storage.(interface{ Vacuum() error }); ok {
+		if err := vacuumer.Vacuum(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		log.Println("[INFO] Storage compacted successfully")
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	} else {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "storage does not support compaction"})
+	}
+}
+
+// getMetrics 获取 Prometheus 格式的监控指标
+func (s *Server) getMetrics(c *gin.Context) {
+	var builder strings.Builder
+
+	// 处理器指标
+	processorStats := s.processor.GetStats()
+	writePromMetric(&builder, "log_processor_input_queue_size", float64(asInt64(processorStats["input_queue_size"])))
+	writePromMetric(&builder, "log_processor_output_queue_size", float64(asInt64(processorStats["output_queue_size"])))
+	writePromMetric(&builder, "log_processor_worker_count", float64(asInt64(processorStats["worker_count"])))
+	writePromMetric(&builder, "log_processor_received_total", float64(asInt64(processorStats["received_count"])))
+	writePromMetric(&builder, "log_processor_processed_total", float64(asInt64(processorStats["processed_count"])))
+	writePromMetric(&builder, "log_processor_dropped_total", float64(asInt64(processorStats["dropped_count"])))
+	writePromMetric(&builder, "log_processor_parse_errors_total", float64(asInt64(processorStats["parse_error_count"])))
+
+	// 溢写队列指标
+	if processorStats["overflow_enabled"].(bool) {
+		writePromMetric(&builder, "log_processor_overflow_pending", float64(asInt64(processorStats["overflow_queue_pending"])))
+		writePromMetric(&builder, "log_processor_overflow_file_bytes", float64(asInt64(processorStats["overflow_file_size_bytes"])))
+		writePromMetric(&builder, "log_processor_overflow_enqueued_total", float64(asInt64(processorStats["overflow_enqueued_count"])))
+		writePromMetric(&builder, "log_processor_overflow_recovered_total", float64(asInt64(processorStats["overflow_recovered_count"])))
+		writePromMetric(&builder, "log_processor_overflow_dropped_total", float64(asInt64(processorStats["overflow_dropped_count"])))
+	}
+
+	// 存储指标
+	total, _ := s.storage.Count(models.FilterCondition{})
+	writePromMetric(&builder, "log_storage_total_logs", float64(total))
+
+	// 系统状态
+	s.runtimeMu.Lock()
+	receiverRunning := s.receiverRunning
+	s.runtimeMu.Unlock()
+	writePromMetric(&builder, "log_receiver_running", boolToFloat64(receiverRunning))
+
+	c.String(http.StatusOK, builder.String())
+}

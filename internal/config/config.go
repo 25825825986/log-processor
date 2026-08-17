@@ -24,8 +24,10 @@ type Config struct {
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
+	Host     string   `json:"host"`
+	Port     int      `json:"port"`
+	APIToken string   `json:"api_token,omitempty"`
+	CORSOrigins []string `json:"cors_origins,omitempty"`
 }
 
 // ParserConfig 解析配置

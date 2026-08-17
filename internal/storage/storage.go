@@ -114,14 +114,13 @@ func (s *SQLiteStorage) SaveBatch(entries []*models.LogEntry) error {
 		return nil
 	}
 
-	// 注意：SQLite 使用 WAL 模式支持并发读，不需要全局锁
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`INSERT INTO logs 
+	stmt, err := tx.Prepare(`INSERT OR IGNORE INTO logs 
 		(id, timestamp, source, level, method, path, status_code, response_time, 
 		 client_ip, user_agent, referer, request_size, response_size, extra_fields, raw_data, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -130,6 +129,7 @@ func (s *SQLiteStorage) SaveBatch(entries []*models.LogEntry) error {
 	}
 	defer stmt.Close()
 
+	var failCount int
 	for _, entry := range entries {
 		extraFields, _ := json.Marshal(entry.ExtraFields)
 		_, err := stmt.Exec(
@@ -151,11 +151,21 @@ func (s *SQLiteStorage) SaveBatch(entries []*models.LogEntry) error {
 			entry.CreatedAt,
 		)
 		if err != nil {
-			log.Printf("Failed to insert log: %v", err)
+			failCount++
+			if failCount <= 3 {
+				log.Printf("Failed to insert log: %v", err)
+			}
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("batch commit failed (%d entries): %w", len(entries), err)
+	}
+
+	if failCount > 0 {
+		log.Printf("[WARN] SaveBatch: %d/%d entries failed to insert", failCount, len(entries))
+	}
+	return nil
 }
 
 // Query 查询日志

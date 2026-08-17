@@ -1,31 +1,46 @@
 {
-  "_comment": "【基础配置】适合开发和一般使用场景。如需更高性能，请使用 config.optimized.json",
   "server": {
     "host": "0.0.0.0",
     "port": 8080
   },
   "parser": {
-    "format": "nginx",
-    "delimiter": " ",
-    "time_format": "02/Jan/2006:15:04:05 -0700",
-    "field_mapping": {
-      "0": "client_ip",
-      "3": "timestamp",
-      "4": "method",
-      "5": "path"
-    }
+    "format": "nginx"
   },
   "processor": {
-    "worker_count": 20,
+    "worker_count": 40,
     "batch_size": 2000,
     "batch_timeout": 500,
     "overflow_enabled": true,
     "overflow_dir": "./data/overflow",
     "overflow_max_disk_mb": 512,
     "overflow_drain_batch": 1000,
-    "overflow_drain_interval_ms": 200,
-    "clean_rules": [],
-    "filter_rules": []
+    "overflow_drain_interval_ms": 200
+  },
+  "alert": {
+    "slow_threshold": 0,
+    "error_rate_threshold": 0
+  },
+  "display": {
+    "page_size": 50,
+    "refresh_interval": 0,
+    "columns": [
+      "timestamp",
+      "method",
+      "path",
+      "status_code",
+      "response_time",
+      "client_ip"
+    ]
+  },
+  "import": {
+    "concurrency": 1,
+    "max_lines": 100000
+  },
+  "storage": {
+    "type": "sqlite",
+    "db_path": "./data/logs.db",
+    "max_memory_items": 100000,
+    "retention_hours": 168
   },
   "receiver": {
     "tcp_enabled": true,
@@ -34,11 +49,8 @@
     "udp_port": 9001,
     "http_enabled": true,
     "http_port": 9002,
+    "file_watcher_enabled": false,
+    "max_connections": 1000,
     "buffer_size": 8192
-  },
-  "storage": {
-    "type": "sqlite",
-    "db_path": "./data/logs.db",
-    "retention_hours": 168
   }
 }

@@ -21,6 +21,7 @@ type AsyncStorage struct {
 	wg            sync.WaitGroup
 	ctx           context.Context
 	cancel        context.CancelFunc
+	closeOnce     sync.Once
 	mu            sync.RWMutex
 	stats         AsyncStats
 }
@@ -57,22 +58,6 @@ func NewAsyncStorage(storage Storage, bufferSize int, batchSize int, flushInterv
 	return as
 }
 
-// Save 异步保存单条日志（非阻塞）。
-func (as *AsyncStorage) Save(entry *models.LogEntry) bool {
-	select {
-	case as.buffer <- entry:
-		as.mu.Lock()
-		as.stats.BufferedCount++
-		as.mu.Unlock()
-		return true
-	default:
-		as.mu.Lock()
-		as.stats.DroppedCount++
-		as.mu.Unlock()
-		return false
-	}
-}
-
 // SaveBatch 批量保存（通过背压避免队列满时直接丢日志）。
 func (as *AsyncStorage) SaveBatch(entries []*models.LogEntry) error {
 	if len(entries) == 0 {
@@ -98,6 +83,31 @@ func (as *AsyncStorage) SaveBatch(entries []*models.LogEntry) error {
 	}
 
 	return nil
+}
+
+// Save 异步保存单条日志（非阻塞）。
+func (as *AsyncStorage) Save(entry *models.LogEntry) bool {
+	select {
+	case <-as.ctx.Done():
+		as.mu.Lock()
+		as.stats.DroppedCount++
+		as.mu.Unlock()
+		return false
+	default:
+	}
+
+	select {
+	case as.buffer <- entry:
+		as.mu.Lock()
+		as.stats.BufferedCount++
+		as.mu.Unlock()
+		return true
+	default:
+		as.mu.Lock()
+		as.stats.DroppedCount++
+		as.mu.Unlock()
+		return false
+	}
 }
 
 // SaveBatchDirect 直接写入底层存储，适合离线导入场景绕过异步队列。
@@ -244,25 +254,32 @@ func (as *AsyncStorage) Vacuum() error {
 
 // Close 关闭异步写入并等待落盘完成。
 func (as *AsyncStorage) Close() error {
-	log.Println("[AsyncStorage] 正在关闭...")
+	var err error
+	as.closeOnce.Do(func() {
+		log.Println("[AsyncStorage] 正在关闭...")
 
-	as.cancel()
-	close(as.buffer)
+		// Cancel context first to stop all senders (SaveBatch/Save will return immediately)
+		as.cancel()
 
-	done := make(chan struct{})
-	go func() {
-		as.wg.Wait()
-		close(done)
-	}()
+		// Now it's safe to close the buffer since no sender can write after ctx is cancelled
+		close(as.buffer)
 
-	select {
-	case <-done:
-		log.Println("[AsyncStorage] 写入协程已退出")
-	case <-time.After(10 * time.Second):
-		log.Println("[WARN] AsyncStorage 关闭超时")
-	}
+		done := make(chan struct{})
+		go func() {
+			as.wg.Wait()
+			close(done)
+		}()
 
-	return as.storage.Close()
+		select {
+		case <-done:
+			log.Println("[AsyncStorage] 写入协程已退出")
+		case <-time.After(10 * time.Second):
+			log.Println("[WARN] AsyncStorage 关闭超时")
+		}
+
+		err = as.storage.Close()
+	})
+	return err
 }
 
 func (as *AsyncStorage) GetStats() AsyncStats {

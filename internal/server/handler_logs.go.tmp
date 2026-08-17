@@ -1,0 +1,148 @@
+// handler_logs.go - 日志查询和删除相关handlers
+package server
+
+import (
+	"log"
+	"log-processor/internal/models"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+// queryLogs 查询日志
+func (s *Server) queryLogs(c *gin.Context) {
+	var filter models.FilterCondition
+
+	// 解析查询参数
+	if startTime := c.Query("start_time"); startTime != "" {
+		if t, err := time.Parse(time.RFC3339, startTime); err == nil {
+			filter.StartTime = &t
+		}
+	}
+	if endTime := c.Query("end_time"); endTime != "" {
+		if t, err := time.Parse(time.RFC3339, endTime); err == nil {
+			filter.EndTime = &t
+		}
+	}
+	if methods := c.QueryArray("methods"); len(methods) > 0 {
+		filter.Methods = methods
+	}
+	if paths := c.QueryArray("paths"); len(paths) > 0 {
+		filter.Paths = paths
+	}
+	if statusCodesStr := c.QueryArray("status_codes"); len(statusCodesStr) > 0 {
+		var statusCodes []int
+		for _, s := range statusCodesStr {
+			if code, err := strconv.Atoi(s); err == nil {
+				statusCodes = append(statusCodes, code)
+			}
+		}
+		filter.StatusCodes = statusCodes
+	}
+	if statusCodeRanges := c.QueryArray("status_code_ranges"); len(statusCodeRanges) > 0 {
+		filter.StatusCodeRanges = statusCodeRanges
+	}
+	if clientIPs := c.QueryArray("client_ips"); len(clientIPs) > 0 {
+		filter.ClientIPs = clientIPs
+	}
+	if minResponseTime := c.Query("min_response_time"); minResponseTime != "" {
+		if rt, err := strconv.ParseInt(minResponseTime, 10, 64); err == nil {
+			filter.MinResponseTime = rt
+		}
+	}
+	if maxResponseTime := c.Query("max_response_time"); maxResponseTime != "" {
+		if rt, err := strconv.ParseInt(maxResponseTime, 10, 64); err == nil {
+			filter.MaxResponseTime = rt
+		}
+	}
+	if level := c.Query("level"); level != "" {
+		filter.Level = level
+	}
+	if source := c.Query("source"); source != "" {
+		filter.Source = source
+	}
+	if keyword := c.Query("keyword"); keyword != "" {
+		filter.Keyword = keyword
+	}
+
+	// 分页参数
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	offset := (page - 1) * limit
+
+	// 查询日志
+	logs, err := s.storage.Query(filter, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 统计总数
+	total, err := s.storage.Count(filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"logs":  logs,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	})
+}
+
+// deleteLog 删除单条日志
+func (s *Server) deleteLog(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing log id"})
+		return
+	}
+
+	if err := s.storage.Delete(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// clearLogs 清空所有日志
+func (s *Server) clearLogs(c *gin.Context) {
+	if err := s.storage.Clear(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	s.processor.ClearPendingData()
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// getStatistics 获取统计信息
+func (s *Server) getStatistics(c *gin.Context) {
+	var filter models.FilterCondition
+
+	// 解析筛选参数（与 queryLogs 相同）
+	if startTime := c.Query("start_time"); startTime != "" {
+		if t, err := time.Parse(time.RFC3339, startTime); err == nil {
+			filter.StartTime = &t
+		}
+	}
+	if endTime := c.Query("end_time"); endTime != "" {
+		if t, err := time.Parse(time.RFC3339, endTime); err == nil {
+			filter.EndTime = &t
+		}
+	}
+
+	stats, err := s.storage.Statistics(filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}

@@ -12,6 +12,36 @@ import (
 	"time"
 )
 
+var (
+	// parseSyslog
+	reSyslog    = regexp.MustCompile(`^(?P<month>\w{3})\s+(?P<day>\d+)\s+(?P<time>\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+(?P<process>[^\[:]+)(?:\[(?P<pid>\d+)\])?:\s+(?P<message>.+)$`)
+	reSyslogMsg = regexp.MustCompile(`^(?P<client_ip>\S+)\s+(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)`)
+
+	// parseGeneric patterns
+	reGeneric1 = regexp.MustCompile(`\[(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+(?P<client_ip>\S+)\s+(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)\s+(?P<response_time>\d+)ms`)
+	reGeneric2 = regexp.MustCompile(`(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+-\s+(?P<client_ip>\S+)\s+-\s+(?P<method>\S+)\s+(?P<path>\S+)\s+-\s+Status:\s+(?P<status_code>\d+)\s+-\s+Size:\s+(?P<response_size>\d+)\s+-\s+Time:\s+(?P<response_time>\d+)ms`)
+	reGeneric3 = regexp.MustCompile(`\[(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+(?P<client_ip>\S+)\s+-\s+(?P<method>\S+)\s+(?P<path>\S+)\s+-\s+(?P<status_code>\d+)\s+-\s+(?P<response_size>\d+)\s+-\s+(?P<response_time>\d+)ms`)
+	reGeneric4 = regexp.MustCompile(`(?P<client_ip>\S+)\s+\[(?P<timestamp>[^\]]+)\]\s+"(?P<method>\S+)\s+(?P<path>\S+)"\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)\s+(?P<response_time>\d+)`)
+	reGeneric5 = regexp.MustCompile(`Request from (?P<client_ip>\S+) at (?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}):\s+(?P<method>\S+)\s+(?P<path>\S+)\s+->\s+(?P<status_code>\d+)\s+\((?P<response_size>\d+) bytes, (?P<response_time>\d+)ms\)`)
+
+	// parseGeneric fallback extractors
+	reIP          = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	reTimestamp1  = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}`)
+	reTimestamp2  = regexp.MustCompile(`\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}`)
+	reMethod      = regexp.MustCompile(`\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b`)
+	reStatusCode  = regexp.MustCompile(`"\s+(\d{3})\s+`)
+	reStatusCode2 = regexp.MustCompile(`(?i)(?:status[:\s]+)(\d{3})`)
+	reSize        = regexp.MustCompile(`(?i)(?:size[:\s]+)(\d+)`)
+	reTime        = regexp.MustCompile(`(?i)(?:time[:\s]+)(\d+)`)
+	rePath        = regexp.MustCompile(`\s(/[\w/._~%&?=-]*)`)
+
+	// inferFieldName patterns
+	reInferIP        = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
+	reInferMethod    = regexp.MustCompile(`^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$`)
+	reInferTimestamp = regexp.MustCompile(`^\d{4}[-/]\d{2}[-/]\d{2}`)
+	reInferDigit     = regexp.MustCompile(`^\d+$`)
+)
+
 // Parser 日志解析器接口
 type Parser interface {
 	Parse(line string) (*models.LogEntry, error)
@@ -132,23 +162,18 @@ func (p *LogParser) parseAutoDelimited(line string, entry *models.LogEntry, form
 
 // parseSyslog 解析Syslog格式
 func (p *LogParser) parseSyslog(line string, entry *models.LogEntry) (*models.LogEntry, error) {
-	// Syslog格式: 月 日 时间 主机 进程[PID]: 消息
-	pattern := regexp.MustCompile(`^(?P<month>\w{3})\s+(?P<day>\d+)\s+(?P<time>\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+(?P<process>[^\[:]+)(?:\[(?P<pid>\d+)\])?:\s+(?P<message>.+)$`)
-
-	matches := pattern.FindStringSubmatch(line)
+	matches := reSyslog.FindStringSubmatch(line)
 	if matches == nil {
 		return entry, fmt.Errorf("failed to parse syslog format")
 	}
 
-	names := pattern.SubexpNames()
+	names := reSyslog.SubexpNames()
 	for i, name := range names {
 		if i > 0 && i < len(matches) && name != "" {
 			p.setField(entry, name, matches[i])
 		}
 	}
 
-	// 尝试从 message 字段提取 HTTP 访问信息
-	// 格式: IP METHOD PATH STATUS SIZE
 	message := ""
 	for i, name := range names {
 		if name == "message" && i < len(matches) {
@@ -158,9 +183,8 @@ func (p *LogParser) parseSyslog(line string, entry *models.LogEntry) (*models.Lo
 	}
 
 	if message != "" {
-		messagePattern := regexp.MustCompile(`^(?P<client_ip>\S+)\s+(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)`)
-		if msgMatches := messagePattern.FindStringSubmatch(message); msgMatches != nil {
-			msgNames := messagePattern.SubexpNames()
+		if msgMatches := reSyslogMsg.FindStringSubmatch(message); msgMatches != nil {
+			msgNames := reSyslogMsg.SubexpNames()
 			for i, name := range msgNames {
 				if i > 0 && i < len(msgMatches) && name != "" {
 					p.setField(entry, name, msgMatches[i])
@@ -177,9 +201,8 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 	// 尝试多种通用格式模式
 
 	// 模式1: [time] IP METHOD PATH STATUS SIZE TIMEms
-	pattern1 := regexp.MustCompile(`\[(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+(?P<client_ip>\S+)\s+(?P<method>\S+)\s+(?P<path>\S+)\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)\s+(?P<response_time>\d+)ms`)
-	if matches := pattern1.FindStringSubmatch(line); matches != nil {
-		names := pattern1.SubexpNames()
+	if matches := reGeneric1.FindStringSubmatch(line); matches != nil {
+		names := reGeneric1.SubexpNames()
 		for i, name := range names {
 			if i > 0 && i < len(matches) && name != "" {
 				p.setField(entry, name, matches[i])
@@ -189,9 +212,8 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 	}
 
 	// 模式2: time - IP - METHOD PATH - Status: STATUS - Size: SIZE - Time: TIMEms
-	pattern2 := regexp.MustCompile(`(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+-\s+(?P<client_ip>\S+)\s+-\s+(?P<method>\S+)\s+(?P<path>\S+)\s+-\s+Status:\s+(?P<status_code>\d+)\s+-\s+Size:\s+(?P<response_size>\d+)\s+-\s+Time:\s+(?P<response_time>\d+)ms`)
-	if matches := pattern2.FindStringSubmatch(line); matches != nil {
-		names := pattern2.SubexpNames()
+	if matches := reGeneric2.FindStringSubmatch(line); matches != nil {
+		names := reGeneric2.SubexpNames()
 		for i, name := range names {
 			if i > 0 && i < len(matches) && name != "" {
 				p.setField(entry, name, matches[i])
@@ -201,9 +223,8 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 	}
 
 	// 模式3: [time] IP - METHOD PATH - STATUS - SIZE - TIMEms
-	pattern3 := regexp.MustCompile(`\[(?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+(?P<client_ip>\S+)\s+-\s+(?P<method>\S+)\s+(?P<path>\S+)\s+-\s+(?P<status_code>\d+)\s+-\s+(?P<response_size>\d+)\s+-\s+(?P<response_time>\d+)ms`)
-	if matches := pattern3.FindStringSubmatch(line); matches != nil {
-		names := pattern3.SubexpNames()
+	if matches := reGeneric3.FindStringSubmatch(line); matches != nil {
+		names := reGeneric3.SubexpNames()
 		for i, name := range names {
 			if i > 0 && i < len(matches) && name != "" {
 				p.setField(entry, name, matches[i])
@@ -213,9 +234,8 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 	}
 
 	// 模式4: IP [time] "METHOD PATH" STATUS SIZE TIME
-	pattern4 := regexp.MustCompile(`(?P<client_ip>\S+)\s+\[(?P<timestamp>[^\]]+)\]\s+"(?P<method>\S+)\s+(?P<path>\S+)"\s+(?P<status_code>\d+)\s+(?P<response_size>\d+)\s+(?P<response_time>\d+)`)
-	if matches := pattern4.FindStringSubmatch(line); matches != nil {
-		names := pattern4.SubexpNames()
+	if matches := reGeneric4.FindStringSubmatch(line); matches != nil {
+		names := reGeneric4.SubexpNames()
 		for i, name := range names {
 			if i > 0 && i < len(matches) && name != "" {
 				p.setField(entry, name, matches[i])
@@ -225,10 +245,8 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 	}
 
 	// 模式5: Request from IP at time: METHOD PATH -> STATUS (SIZE bytes, TIMEms)
-	// 注意：timestamp 格式是 2026-03-09 10:00:04
-	pattern5 := regexp.MustCompile(`Request from (?P<client_ip>\S+) at (?P<timestamp>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}):\s+(?P<method>\S+)\s+(?P<path>\S+)\s+->\s+(?P<status_code>\d+)\s+\((?P<response_size>\d+) bytes, (?P<response_time>\d+)ms\)`)
-	if matches := pattern5.FindStringSubmatch(line); matches != nil {
-		names := pattern5.SubexpNames()
+	if matches := reGeneric5.FindStringSubmatch(line); matches != nil {
+		names := reGeneric5.SubexpNames()
 		for i, name := range names {
 			if i > 0 && i < len(matches) && name != "" {
 				p.setField(entry, name, matches[i])
@@ -238,77 +256,58 @@ func (p *LogParser) parseGeneric(line string, entry *models.LogEntry) (*models.L
 	}
 
 	// 兜底：尝试提取可能的字段
-	// 1. 查找IP地址
-	ipPattern := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	if ip := ipPattern.FindString(line); ip != "" {
+	if ip := reIP.FindString(line); ip != "" {
 		entry.ClientIP = ip
 	}
 
-	// 2. 查找时间戳
-	timePatterns := []string{
-		`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}`,
-		`\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}`,
-	}
-	for _, pattern := range timePatterns {
-		if t := regexp.MustCompile(pattern).FindString(line); t != "" {
+	timestampPatterns := []*regexp.Regexp{reTimestamp1, reTimestamp2}
+	for _, re := range timestampPatterns {
+		if t := re.FindString(line); t != "" {
 			entry.Timestamp = p.parseTime(t)
 			break
 		}
 	}
 
-	// 3. 查找HTTP方法
-	methodPattern := regexp.MustCompile(`\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b`)
-	if method := methodPattern.FindString(line); method != "" {
+	if method := reMethod.FindString(line); method != "" {
 		entry.Method = method
 	}
 
-	// 4. 查找状态码（Nginx/Apache 风格）
-	statusPattern := regexp.MustCompile(`"\s+(\d{3})\s+`)
-	if matches := statusPattern.FindStringSubmatch(line); len(matches) > 1 {
+	if matches := reStatusCode.FindStringSubmatch(line); len(matches) > 1 {
 		if code, _ := strconv.Atoi(matches[1]); code > 0 {
 			entry.StatusCode = code
 		}
 	}
 
-	// 5. 查找状态码（键值对风格，如 Status: 200）
 	if entry.StatusCode == 0 {
-		statusPattern2 := regexp.MustCompile(`(?i)(?:status[:\s]+)(\d{3})`)
-		if matches := statusPattern2.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := reStatusCode2.FindStringSubmatch(line); len(matches) > 1 {
 			if code, _ := strconv.Atoi(matches[1]); code > 0 {
 				entry.StatusCode = code
 			}
 		}
 	}
 
-	// 6. 查找响应大小（键值对风格，如 Size: 1234）
 	if entry.ResponseSize == 0 {
-		sizePattern := regexp.MustCompile(`(?i)(?:size[:\s]+)(\d+)`)
-		if matches := sizePattern.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := reSize.FindStringSubmatch(line); len(matches) > 1 {
 			if size, _ := strconv.ParseInt(matches[1], 10, 64); size > 0 {
 				entry.ResponseSize = size
 			}
 		}
 	}
 
-	// 7. 查找响应时间（键值对风格，如 Time: 123）
 	if entry.ResponseTime == 0 {
-		timePattern := regexp.MustCompile(`(?i)(?:time[:\s]+)(\d+)`)
-		if matches := timePattern.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := reTime.FindStringSubmatch(line); len(matches) > 1 {
 			if rt, _ := strconv.ParseInt(matches[1], 10, 64); rt > 0 {
 				entry.ResponseTime = rt
 			}
 		}
 	}
 
-	// 8. 查找路径（以 / 开头的字符串）
 	if entry.Path == "" {
-		pathPattern := regexp.MustCompile(`\s(/[\w/._~%&?=-]*)`)
-		if matches := pathPattern.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := rePath.FindStringSubmatch(line); len(matches) > 1 {
 			entry.Path = matches[1]
 		}
 	}
 
-	// 有效性校验：如果一条日志完全无法提取任何有效字段，则认为解析失败
 	if entry.Timestamp.IsZero() && entry.ClientIP == "" && entry.Method == "" && entry.StatusCode == 0 {
 		return entry, fmt.Errorf("无法识别日志格式，未提取到有效字段")
 	}
@@ -321,17 +320,17 @@ func inferFieldName(field string, index, total int) string {
 	field = strings.TrimSpace(field)
 
 	// IP地址
-	if regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`).MatchString(field) {
+	if reInferIP.MatchString(field) {
 		return "client_ip"
 	}
 
 	// HTTP方法
-	if regexp.MustCompile(`^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$`).MatchString(field) {
+	if reInferMethod.MatchString(field) {
 		return "method"
 	}
 
 	// 时间戳
-	if regexp.MustCompile(`^\d{4}[-/]\d{2}[-/]\d{2}`).MatchString(field) {
+	if reInferTimestamp.MatchString(field) {
 		return "timestamp"
 	}
 
@@ -341,7 +340,7 @@ func inferFieldName(field string, index, total int) string {
 	}
 
 	// 数字字段（响应大小、响应时间或状态码）
-	if regexp.MustCompile(`^\d+$`).MatchString(field) {
+	if reInferDigit.MatchString(field) {
 		val, _ := strconv.ParseInt(field, 10, 64)
 
 		// 根据字段位置和值综合判断

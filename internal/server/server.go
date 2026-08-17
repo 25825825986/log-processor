@@ -3,7 +3,6 @@ package server
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -45,20 +44,6 @@ type importProgressState struct {
 	StartedAt      time.Time `json:"started_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	Message        string    `json:"message,omitempty"`
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func minFloat64(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // Server Web服务器
@@ -111,9 +96,12 @@ func NewServer(cfg *config.Config, store storage.Storage, proc *processor.Proces
 func (s *Server) setupRoutes() {
 	// CORS 中间件
 	s.router.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := c.Request.Header.Get("Origin")
+		allowedOrigin := s.getAllowedOrigin(origin)
+		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Token")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -133,39 +121,33 @@ func (s *Server) setupRoutes() {
 	})
 	s.router.GET("/metrics", s.getMetrics)
 
-	// API路由组
+	// API路由组 - 只读接口无需认证
 	api := s.router.Group("/api")
 	{
-		// 配置管理
+		// 只读接口（无需认证）
 		api.GET("/config", s.getConfig)
-		api.POST("/config", s.updateConfig)
-
-		// 日志查询
 		api.GET("/logs", s.queryLogs)
-		api.POST("/logs/import", s.importLogsFast)
 		api.GET("/logs/import/progress", s.getImportProgress)
-		api.DELETE("/logs/:id", s.deleteLog)
-		api.DELETE("/logs", s.clearLogs)
-
-		// 统计分析
 		api.GET("/statistics", s.getStatistics)
-
-		// 导出
-		api.POST("/export", s.exportLogs)
 		api.GET("/export/formats", s.getExportFormats)
-
-		// 系统状态
 		api.GET("/status", s.getStatus)
-
-		// 接收器控制
-		api.POST("/receiver/start", s.startReceiver)
-		api.POST("/receiver/stop", s.stopReceiver)
-
-		// 存储管理
 		api.GET("/storage/info", s.getStorageInfo)
-		api.POST("/storage/compact", s.compactStorage)
-		api.POST("/benchmark/run", s.runBenchmark)
 		api.GET("/benchmark/report", s.getBenchmarkReport)
+	}
+
+	// 写操作接口（需要认证）
+	apiWrite := s.router.Group("/api")
+	apiWrite.Use(s.authMiddleware())
+	{
+		apiWrite.POST("/config", s.updateConfig)
+		apiWrite.POST("/logs/import", s.importLogsFast)
+		apiWrite.DELETE("/logs/:id", s.deleteLog)
+		apiWrite.DELETE("/logs", s.clearLogs)
+		apiWrite.POST("/export", s.exportLogs)
+		apiWrite.POST("/receiver/start", s.startReceiver)
+		apiWrite.POST("/receiver/stop", s.stopReceiver)
+		apiWrite.POST("/storage/compact", s.compactStorage)
+		apiWrite.POST("/benchmark/run", s.runBenchmark)
 	}
 }
 
@@ -176,13 +158,79 @@ func (s *Server) Run() error {
 	return s.router.Run(addr)
 }
 
+// authMiddleware 返回 API Token 认证中间件。
+// 如果配置中未设置 api_token，则放行所有请求（向后兼容）。
+func (s *Server) authMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cfg := s.config.Get()
+		token := cfg.Server.APIToken
+		if token == "" {
+			c.Next()
+			return
+		}
+
+		// 从 Authorization: Bearer <token> 或 X-API-Token header 获取
+		provided := ""
+		if auth := c.GetHeader("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			provided = strings.TrimPrefix(auth, "Bearer ")
+		}
+		if provided == "" {
+			provided = c.GetHeader("X-API-Token")
+		}
+		if provided == "" {
+			provided = c.Query("token")
+		}
+
+		if provided != token {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "unauthorized: invalid or missing API token",
+			})
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// getAllowedOrigin 根据配置决定 CORS 允许的 Origin。
+func (s *Server) getAllowedOrigin(origin string) string {
+	cfg := s.config.Get()
+
+	if len(cfg.Server.CORSOrigins) == 0 {
+		// 未配置则允许同源（本机 Web 界面）+ localhost 变体
+		localOrigin := fmt.Sprintf("http://localhost:%d", cfg.Server.Port)
+		if origin == localOrigin || origin == fmt.Sprintf("http://127.0.0.1:%d", cfg.Server.Port) || origin == "" {
+			return origin
+		}
+		return localOrigin
+	}
+
+	for _, allowed := range cfg.Server.CORSOrigins {
+		if allowed == "*" {
+			return "*"
+		}
+		if allowed == origin {
+			return origin
+		}
+	}
+
+	return ""
+}
+
 // getConfig 获取配置（过滤敏感信息）
 func (s *Server) getConfig(c *gin.Context) {
 	cfg := s.config.Get()
 
-	// 出于安全考虑，不返回敏感配置（如认证Token）
+	// 不暴露 api_token 明文，只告知是否已设置
+	serverInfo := gin.H{
+		"host":         cfg.Server.Host,
+		"port":         cfg.Server.Port,
+		"cors_origins": cfg.Server.CORSOrigins,
+		"api_token_set": cfg.Server.APIToken != "",
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"server":    cfg.Server,
+		"server":    serverInfo,
 		"parser":    cfg.Parser,
 		"processor": cfg.Processor,
 		"alert":     cfg.Alert,
@@ -196,7 +244,7 @@ func (s *Server) getConfig(c *gin.Context) {
 			"udp_port":             cfg.Receiver.UDPPort,
 			"http_enabled":         cfg.Receiver.HTTPEnabled,
 			"http_port":            cfg.Receiver.HTTPPort,
-			"http_auth_token":      cfg.Receiver.HTTPAuthToken, // 返回实际值（为空则不启用）
+			"http_auth_token":      cfg.Receiver.HTTPAuthToken,
 			"http_allowed_ips":     cfg.Receiver.HTTPAllowedIPs,
 			"http_rate_limit":      cfg.Receiver.HTTPRateLimit,
 			"http_max_body_size":   cfg.Receiver.HTTPMaxBodySize,
@@ -847,33 +895,6 @@ func getAccessDescription(statusCode int, method, path string) string {
 	return "[未知操作]"
 }
 
-// compareReceiverConfig 比较两个接收器配置是否相同
-func compareReceiverConfig(a, b config.ReceiverConfig) bool {
-	if a.TCPEnabled != b.TCPEnabled || a.TCPPort != b.TCPPort {
-		return false
-	}
-	if a.UDPEnabled != b.UDPEnabled || a.UDPPort != b.UDPPort {
-		return false
-	}
-	if a.HTTPEnabled != b.HTTPEnabled || a.HTTPPort != b.HTTPPort {
-		return false
-	}
-	if a.HTTPAuthToken != b.HTTPAuthToken {
-		return false
-	}
-	if a.HTTPRateLimit != b.HTTPRateLimit {
-		return false
-	}
-	if a.HTTPMaxBodySize != b.HTTPMaxBodySize {
-		return false
-	}
-	// 高级接收参数与文件监控不参与差异化重启判断（答辩演示不需要）
-	if !compareStringSlices(a.HTTPAllowedIPs, b.HTTPAllowedIPs) {
-		return false
-	}
-	return true
-}
-
 // restartReceivers 重启接收器
 func (s *Server) restartReceivers(newCfg config.ReceiverConfig) error {
 	s.runtimeMu.Lock()
@@ -896,20 +917,6 @@ func (s *Server) restartReceivers(newCfg config.ReceiverConfig) error {
 	}
 
 	return nil
-}
-
-// getExtension 获取文件扩展名
-func getExtension(format string) string {
-	switch format {
-	case "excel":
-		return ".xlsx"
-	case "csv":
-		return ".csv"
-	case "json":
-		return ".json"
-	default:
-		return ".xlsx"
-	}
 }
 
 // getStorageInfo 获取存储信息
@@ -1319,17 +1326,6 @@ func buildBenchmarkLogLine(sequence int64, workerID int) string {
 	)
 }
 
-func writePromMetric(builder *strings.Builder, name string, value float64) {
-	builder.WriteString(name)
-	builder.WriteByte(' ')
-	builder.WriteString(strconv.FormatFloat(value, 'f', -1, 64))
-	builder.WriteByte('\n')
-}
-
-func metricDelta(after map[string]interface{}, before map[string]interface{}, key string) int64 {
-	return asInt64(after[key]) - asInt64(before[key])
-}
-
 func (s *Server) getBenchmarkBacklogSnapshot() map[string]int64 {
 	stats := s.processor.GetStats()
 	snapshot := map[string]int64{
@@ -1371,47 +1367,6 @@ func (s *Server) waitForBenchmarkDrain(timeout time.Duration) (float64, bool, ma
 		<-ticker.C
 		lastSnapshot = s.getBenchmarkBacklogSnapshot()
 	}
-}
-
-func asInt64(value interface{}) int64 {
-	switch v := value.(type) {
-	case int:
-		return int64(v)
-	case int8:
-		return int64(v)
-	case int16:
-		return int64(v)
-	case int32:
-		return int64(v)
-	case int64:
-		return v
-	case uint:
-		return int64(v)
-	case uint8:
-		return int64(v)
-	case uint16:
-		return int64(v)
-	case uint32:
-		return int64(v)
-	case uint64:
-		if v > uint64(^uint64(0)>>1) {
-			return int64(^uint64(0) >> 1)
-		}
-		return int64(v)
-	case float32:
-		return int64(v)
-	case float64:
-		return int64(v)
-	default:
-		return 0
-	}
-}
-
-func boolToFloat64(v bool) float64 {
-	if v {
-		return 1
-	}
-	return 0
 }
 
 // importLogsFast 走离线导入专用链路，绕过实时处理队列和异步存储缓冲。
@@ -1827,43 +1782,6 @@ func (s *Server) getImportProgress(c *gin.Context) {
 	s.importProgressMu.RUnlock()
 
 	c.JSON(http.StatusOK, copyProgress)
-}
-
-func mergeConfigSection(payload map[string]interface{}, key string, target interface{}) error {
-	raw, ok := payload[key]
-	if !ok {
-		return nil
-	}
-
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return fmt.Errorf("failed to encode %s config: %w", key, err)
-	}
-
-	if err := json.Unmarshal(data, target); err != nil {
-		return fmt.Errorf("invalid %s config: %w", key, err)
-	}
-
-	return nil
-}
-
-func compareStorageConfig(a, b config.StorageConfig) bool {
-	return a.Type == b.Type &&
-		a.DBPath == b.DBPath &&
-		a.MaxMemoryItems == b.MaxMemoryItems &&
-		a.RetentionHours == b.RetentionHours
-}
-
-func compareStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func (s *Server) applyStorageConfig(cfg config.StorageConfig) error {

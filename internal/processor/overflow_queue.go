@@ -25,13 +25,14 @@ type OverflowQueueStats struct {
 	WriteErrorCount int64 `json:"write_error_count"`
 }
 
-// DiskOverflowQueue 是一个轻量的磁盘溢写队列
-// 数据以 base64 + '\n' 方式写入，避免原始日志换行导致解析歧义。
+// DiskOverflowQueue 是一个轻量的磁盘溢写队列（优化版）
+// 使用 offset 追踪避免大文件全量读写
 type DiskOverflowQueue struct {
 	mu sync.Mutex
 
-	filePath string
-	maxBytes int64
+	filePath   string
+	maxBytes   int64
+	readOffset int64 // 当前读取位置
 
 	pending   int64
 	enqueued  int64
@@ -66,9 +67,10 @@ func NewDiskOverflowQueue(dir string, maxDiskMB int) (*DiskOverflowQueue, error)
 	}
 
 	return &DiskOverflowQueue{
-		filePath: filePath,
-		maxBytes: int64(maxDiskMB) * 1024 * 1024,
-		pending:  pending,
+		filePath:   filePath,
+		maxBytes:   int64(maxDiskMB) * 1024 * 1024,
+		readOffset: 0,
+		pending:    pending,
 	}, nil
 }
 
@@ -121,7 +123,7 @@ func (q *DiskOverflowQueue) Enqueue(line string) bool {
 	return true
 }
 
-// Drain 从磁盘队列回灌到内存处理队列，返回成功回灌条数
+// Drain 从磁盘队列回灌到内存处理队列（优化版：使用 offset 追踪）
 func (q *DiskOverflowQueue) Drain(maxBatch int, submit func(string) bool) int {
 	if maxBatch <= 0 {
 		maxBatch = 1
@@ -130,22 +132,54 @@ func (q *DiskOverflowQueue) Drain(maxBatch int, submit func(string) bool) int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	f, err := os.OpenFile(q.filePath, os.O_RDWR|os.O_CREATE, 0o644)
+	// 打开文件用于读取
+	f, err := os.Open(q.filePath)
 	if err != nil {
-		q.writeErr++
+		if !os.IsNotExist(err) {
+			q.writeErr++
+		}
 		return 0
 	}
 	defer f.Close()
 
+	// 获取文件大小
+	stat, err := f.Stat()
+	if err != nil {
+		q.writeErr++
+		return 0
+	}
+
+	// 如果 offset 超过文件大小，说明文件已被外部清理，重置 offset
+	if q.readOffset > stat.Size() {
+		q.readOffset = 0
+		q.pending = 0
+	}
+
+	// 定位到上次读取的位置
+	if _, err := f.Seek(q.readOffset, io.SeekStart); err != nil {
+		q.writeErr++
+		return 0
+	}
+
 	reader := bufio.NewReader(f)
 	drained := 0
 	skipped := 0
-	var consumedBytes int64
-	var pushBackLine []byte
 
 	for drained+skipped < maxBatch {
+		// 记录当前行开始位置
+		lineStartOffset := q.readOffset
+
 		raw, readErr := reader.ReadString('\n')
 		if readErr == io.EOF {
+			// 到达文件末尾
+			if len(raw) > 0 {
+				// 处理最后一行（没有换行符）
+				q.readOffset += int64(len(raw))
+				if processed := q.processLine(raw, submit, &drained, &skipped); !processed {
+					// 如果处理失败（队列满），回退 offset
+					q.readOffset = lineStartOffset
+				}
+			}
 			break
 		}
 		if readErr != nil {
@@ -153,64 +187,18 @@ func (q *DiskOverflowQueue) Drain(maxBatch int, submit func(string) bool) int {
 			break
 		}
 
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			consumedBytes += int64(len(raw))
-			skipped++
-			q.dropped++
-			continue
-		}
+		// 更新 offset
+		q.readOffset += int64(len(raw))
 
-		data, decodeErr := base64.StdEncoding.DecodeString(trimmed)
-		if decodeErr != nil {
-			consumedBytes += int64(len(raw))
-			skipped++
-			q.dropped++
-			continue
-		}
-
-		if !submit(string(data)) {
-			pushBackLine = []byte(raw)
+		// 处理当前行
+		if processed := q.processLine(raw, submit, &drained, &skipped); !processed {
+			// 如果处理失败（队列满），回退 offset 并退出
+			q.readOffset = lineStartOffset
 			break
 		}
-
-		consumedBytes += int64(len(raw))
-		drained++
 	}
 
-	if consumedBytes == 0 {
-		return drained
-	}
-
-	// 将未消费的数据回写到文件头部，保证文件始终只保留“待处理”的记录
-	tail, err := io.ReadAll(reader)
-	if err != nil {
-		q.writeErr++
-		return drained
-	}
-
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		q.writeErr++
-		return drained
-	}
-	if err := f.Truncate(0); err != nil {
-		q.writeErr++
-		return drained
-	}
-
-	if len(pushBackLine) > 0 {
-		if _, err := f.Write(pushBackLine); err != nil {
-			q.writeErr++
-			return drained
-		}
-	}
-	if len(tail) > 0 {
-		if _, err := f.Write(tail); err != nil {
-			q.writeErr++
-			return drained
-		}
-	}
-
+	// 更新统计
 	removed := int64(drained + skipped)
 	if removed >= q.pending {
 		q.pending = 0
@@ -219,7 +207,121 @@ func (q *DiskOverflowQueue) Drain(maxBatch int, submit func(string) bool) int {
 	}
 	q.recovered += int64(drained)
 
+	// 如果文件已完全读取，且没有待处理数据，压缩文件
+	if q.readOffset >= stat.Size() && q.pending == 0 {
+		q.compactFile()
+	}
+
+	// 如果 offset 已超过文件一半且待处理数据较少，考虑压缩
+	if q.readOffset > stat.Size()/2 && q.pending < 100 {
+		q.compactFile()
+	}
+
 	return drained
+}
+
+// processLine 处理单行数据
+func (q *DiskOverflowQueue) processLine(raw string, submit func(string) bool, drained, skipped *int) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		*skipped++
+		q.dropped++
+		return true
+	}
+
+	data, decodeErr := base64.StdEncoding.DecodeString(trimmed)
+	if decodeErr != nil {
+		*skipped++
+		q.dropped++
+		return true
+	}
+
+	if !submit(string(data)) {
+		// 队列满，无法提交
+		return false
+	}
+
+	*drained++
+	return true
+}
+
+// compactFile 压缩文件：删除已消费的数据
+func (q *DiskOverflowQueue) compactFile() {
+	// 如果 offset 为 0 或文件为空，无需压缩
+	if q.readOffset == 0 {
+		return
+	}
+
+	// 如果文件已完全读取，直接清空
+	stat, err := os.Stat(q.filePath)
+	if err != nil {
+		return
+	}
+
+	if q.readOffset >= stat.Size() {
+		// 完全读取，直接 truncate
+		f, err := os.OpenFile(q.filePath, os.O_RDWR, 0o644)
+		if err != nil {
+			q.writeErr++
+			return
+		}
+		defer f.Close()
+
+		if err := f.Truncate(0); err != nil {
+			q.writeErr++
+			return
+		}
+		q.readOffset = 0
+		q.pending = 0
+		return
+	}
+
+	// 部分读取：将未读数据移到文件头部
+	// 读取未消费的数据
+	f, err := os.Open(q.filePath)
+	if err != nil {
+		q.writeErr++
+		return
+	}
+
+	if _, err := f.Seek(q.readOffset, io.SeekStart); err != nil {
+		f.Close()
+		q.writeErr++
+		return
+	}
+
+	remaining, err := io.ReadAll(f)
+	f.Close()
+	if err != nil {
+		q.writeErr++
+		return
+	}
+
+	// 重写文件
+	f, err = os.OpenFile(q.filePath, os.O_RDWR, 0o644)
+	if err != nil {
+		q.writeErr++
+		return
+	}
+	defer f.Close()
+
+	if err := f.Truncate(0); err != nil {
+		q.writeErr++
+		return
+	}
+
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		q.writeErr++
+		return
+	}
+
+	if _, err := f.Write(remaining); err != nil {
+		q.writeErr++
+		return
+	}
+
+	// 重置 offset
+	q.readOffset = 0
 }
 
 // Stats 返回当前队列统计
@@ -242,7 +344,7 @@ func (q *DiskOverflowQueue) Stats() OverflowQueueStats {
 	}
 }
 
-// Clear 清空磁盘溢出队列中的所有待处理数据。
+// Clear 清空磁盘溢出队列中的所有待处理数据
 func (q *DiskOverflowQueue) Clear() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -258,18 +360,19 @@ func (q *DiskOverflowQueue) Clear() error {
 		q.writeErr++
 		return err
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		q.writeErr++
-		return err
-	}
 
+	q.readOffset = 0
 	q.pending = 0
 	return nil
 }
 
+// countQueueLines 统计队列文件的行数
 func countQueueLines(path string) (int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
 		return 0, err
 	}
 	defer f.Close()
