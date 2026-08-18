@@ -1,0 +1,17 @@
+<!-- .cursor/rules/project-conventions.md -->
+
+# 项目规范
+
+## 构建和测试
+- 构建：`npm run build`
+- 测试：`npm run test`
+- 类型检查：`npm run typecheck`
+
+## 代码风格
+- 使用 ES Modules
+- 优先使用解构
+- 异步操作使用 async/await
+
+## 工作流
+- 每次修改后运行类型检查
+- 提交前确保所有测试通过
