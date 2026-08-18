@@ -1,14 +1,15 @@
-# Binaries for programs and plugins
+# Binaries
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+bin/
 
 # Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool
+# Coverage output
 *.out
 
 # Dependency directories
@@ -17,12 +18,16 @@ vendor/
 # Go workspace file
 go.work
 
-# Data directories
+# Runtime data directories (generated at runtime, not source)
 data/
 exports/
 temp/
 logs/
 .gocache/
+
+# Overflow queue sidecar files
+*.offset
+*.queue.tmp
 
 # IDE
 .idea/
@@ -37,14 +42,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Config (optional)
+# Local config override (keep example configs in repo)
 config.json
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
-
-# Papers and thesis documents (private)
-papers/
-thesis/
-docs/private/
