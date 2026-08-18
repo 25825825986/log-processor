@@ -87,7 +87,9 @@ func getExtension(format string) string {
 	case "json":
 		return ".json"
 	default:
-		return ".txt"
+		// Bug 7 fix: unknown formats fall back to .xlsx (same as the original
+		// server.go implementation), so Excel can still open the file.
+		return ".xlsx"
 	}
 }
 

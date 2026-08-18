@@ -101,7 +101,10 @@ func (s *Server) setupRoutes() {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Token")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		// Bug 4 fix: browsers reject Allow-Credentials:true together with wildcard origin.
+		if allowedOrigin != "*" && allowedOrigin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -272,6 +275,16 @@ func (s *Server) updateConfig(c *gin.Context) {
 	if err := mergeConfigSection(jsonConfig, "server", &mergedConfig.Server); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// Bug 5 fix: if the payload's "server" object does not explicitly include
+	// "api_token", restore the current token so a partial update (e.g. changing
+	// only cors_origins) cannot silently wipe write-protection.
+	if serverSection, ok := jsonConfig["server"]; ok {
+		if serverMap, ok := serverSection.(map[string]interface{}); ok {
+			if _, provided := serverMap["api_token"]; !provided {
+				mergedConfig.Server.APIToken = oldConfig.Server.APIToken
+			}
+		}
 	}
 	if err := mergeConfigSection(jsonConfig, "parser", &mergedConfig.Parser); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -724,25 +737,32 @@ func (s *Server) getStatus(c *gin.Context) {
 	storageStats, _ := s.storage.Statistics(models.FilterCondition{})
 	alerts := buildAlertSummaries(storageStats, cfg.Alert)
 
-	// 只返回基本配置信息，过滤敏感字段
+	// Bug 6 fix: don't embed cfg.Server directly — it contains api_token.
+	// Mirror the same redaction pattern used in getConfig.
+	serverInfo := gin.H{
+		"host":          cfg.Server.Host,
+		"port":          cfg.Server.Port,
+		"cors_origins":  cfg.Server.CORSOrigins,
+		"api_token_set": cfg.Server.APIToken != "",
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"config": gin.H{
-			"server":    cfg.Server,
+			"server":    serverInfo,
 			"parser":    cfg.Parser,
 			"processor": cfg.Processor,
 			"alert":     cfg.Alert,
 			"display":   cfg.Display,
 			"import":    cfg.Import,
 			"receiver": gin.H{
-				"tcp_enabled":          cfg.Receiver.TCPEnabled,
-				"tcp_port":             cfg.Receiver.TCPPort,
-				"udp_enabled":          cfg.Receiver.UDPEnabled,
-				"udp_port":             cfg.Receiver.UDPPort,
-				"http_enabled":         cfg.Receiver.HTTPEnabled,
-				"http_port":            cfg.Receiver.HTTPPort,
-				"http_rate_limit":      cfg.Receiver.HTTPRateLimit,
-				"http_max_body_size":   cfg.Receiver.HTTPMaxBodySize,
-					// 高级接收参数与文件监控已隐藏（答辩演示不需要）
+				"tcp_enabled":        cfg.Receiver.TCPEnabled,
+				"tcp_port":           cfg.Receiver.TCPPort,
+				"udp_enabled":        cfg.Receiver.UDPEnabled,
+				"udp_port":           cfg.Receiver.UDPPort,
+				"http_enabled":       cfg.Receiver.HTTPEnabled,
+				"http_port":          cfg.Receiver.HTTPPort,
+				"http_rate_limit":    cfg.Receiver.HTTPRateLimit,
+				"http_max_body_size": cfg.Receiver.HTTPMaxBodySize,
 			},
 			"storage": cfg.Storage,
 		},
