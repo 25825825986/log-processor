@@ -7,9 +7,9 @@
     "format": "nginx"
   },
   "processor": {
-    "worker_count": 40,
-    "batch_size": 2000,
-    "batch_timeout": 500,
+    "worker_count": 50,
+    "batch_size": 500,
+    "batch_timeout": 5000,
     "overflow_enabled": true,
     "overflow_dir": "./data/overflow",
     "overflow_max_disk_mb": 512,
@@ -17,8 +17,8 @@
     "overflow_drain_interval_ms": 200
   },
   "alert": {
-    "slow_threshold": 0,
-    "error_rate_threshold": 0
+    "slow_threshold": 1000,
+    "error_rate_threshold": 5
   },
   "display": {
     "page_size": 50,

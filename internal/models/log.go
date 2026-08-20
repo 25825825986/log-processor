@@ -10,8 +10,19 @@ import (
 type LogEntry struct {
 	ID            string            `json:"id" db:"id"`
 	Timestamp     time.Time         `json:"timestamp" db:"timestamp"`
+	
+	// 项目维度（新增）
+	ProjectID     string            `json:"project_id" db:"project_id"`
+	ProjectName   string            `json:"project_name" db:"project_name"`
+	Environment   string            `json:"environment" db:"environment"` // dev/test/staging/prod
+	ServiceName   string            `json:"service_name" db:"service_name"` // 微服务名称
+	
+	// 日志分类（扩展）
 	Source        string            `json:"source" db:"source"`
-	Level         string            `json:"level" db:"level"`
+	Level         string            `json:"level" db:"level"` // DEBUG/INFO/WARN/ERROR/FATAL
+	LogType       string            `json:"log_type" db:"log_type"` // api_call/system/middleware/error
+	
+	// 请求信息
 	Method        string            `json:"method" db:"method"`
 	Path          string            `json:"path" db:"path"`
 	StatusCode    int               `json:"status_code" db:"status_code"`
@@ -21,6 +32,24 @@ type LogEntry struct {
 	Referer       string            `json:"referer" db:"referer"`
 	RequestSize   int64             `json:"request_size" db:"request_size"`
 	ResponseSize  int64             `json:"response_size" db:"response_size"`
+	
+	// 错误追踪（新增）
+	ErrorMessage  string            `json:"error_message" db:"error_message"`
+	ErrorCode     string            `json:"error_code" db:"error_code"`
+	StackTrace    string            `json:"stack_trace" db:"stack_trace"`
+	
+	// 上下文信息（新增）
+	RequestID     string            `json:"request_id" db:"request_id"`
+	UserID        string            `json:"user_id" db:"user_id"`
+	SessionID     string            `json:"session_id" db:"session_id"`
+	
+	// AI 分析（新增）
+	AIAnalyzed    bool              `json:"ai_analyzed" db:"ai_analyzed"`
+	AIAnalysis    string            `json:"ai_analysis" db:"ai_analysis"` // JSON 格式
+	AISuggestions string            `json:"ai_suggestions" db:"ai_suggestions"`
+	AIAnalyzedAt  *time.Time        `json:"ai_analyzed_at" db:"ai_analyzed_at"`
+	
+	// 原有字段
 	ExtraFields   map[string]string `json:"extra_fields" db:"extra_fields"`
 	RawData       string            `json:"raw_data" db:"raw_data"`
 	CreatedAt     time.Time         `json:"created_at" db:"created_at"`
