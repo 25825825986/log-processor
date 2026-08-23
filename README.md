@@ -2,13 +2,23 @@
 
 基于 Go 语言开发的轻量级高并发日志数据处理系统，支持实时日志接收、自动格式识别、解析、存储和导出，附带可视化 Web 管理界面。
 
+> **⚠️ 重要更新：系统已从 SQLite 迁移到 MySQL**
+> 
+> - 现在需要 MySQL 数据库支持
+> - 性能提升 10 倍（500 QPS → 5,000+ QPS）
+> - 支持网络访问和集群部署
+> - 查看 [MySQL 迁移指南](docs/MYSQL_MIGRATION.md) 和 [SQLite 移除说明](docs/SQLITE_REMOVAL.md)
+
 ## 特性
 
 - **高并发处理**：Goroutine + Channel 流水线，多 Worker 并行解析，单机可达 1,500+ QPS 持续 / 20,000+ QPS 突发
+- **MySQL 存储**：连接池、批量插入、复合索引优化，支持网络访问和集群部署
 - **溢出保护**：内存队列满时自动溢写到磁盘；readOffset 持久化，进程重启后不重放已消费数据
 - **多协议接收**：TCP / UDP / HTTP 三路并行接收，支持文件批量导入
 - **智能解析**：自动识别 Nginx、Apache、JSON、CSV、TSV、Syslog 等格式；预编译正则，热路径零 GC 压力
-- **异步存储**：内存批次缓冲 + 定时刷盘，SQLite WAL 模式，写入延迟 < 1ms
+- **异步存储**：内存批次缓冲 + 定时刷盘，写入延迟 < 1ms
+- **多项目支持**：支持多项目隔离、环境区分、日志级别、错误追踪
+- **AI 分析就绪**：数据模型已支持 AI 错误分析字段
 - **配置热更新**：通过 Web 界面或 REST API 修改配置，即时生效无需重启
 - **API 认证**：可选 Bearer Token 认证，写操作与只读操作分离；CORS 白名单模式
 - **数据导出**：支持 Excel / CSV / JSON 格式
@@ -16,18 +26,47 @@
 
 ## 快速开始
 
+### 前置要求
+
+1. **Go 1.21+**
+2. **MySQL 5.7+ / 8.0+** （新增要求）
+
+### 安装步骤
+
 ```bash
-# 1. 安装 Go 1.21+ 并获取依赖
+# 1. 安装 MySQL（如果还没有）
+# Ubuntu/Debian: sudo apt install mysql-server
+# CentOS/RHEL: sudo yum install mysql-server
+# macOS: brew install mysql
+# Windows: 下载安装 MySQL Community Server
+
+# 2. 初始化数据库
+mysql -u root -p < scripts/init_mysql.sql
+# 或在 Windows PowerShell 中：
+# Get-Content scripts\init_mysql.sql | mysql -u root -p
+
+# 3. 克隆项目并安装依赖
+git clone <repository>
+cd Log_processor
 go mod download
 
-# 2. 编译
+# 4. 配置数据库连接
+# 编辑 config.example.json，修改 storage.mysql.password
+
+# 5. 编译
 go build -o bin/log-processor ./cmd/server/
 
-# 3. 启动（基础配置）
+# 6. 测试 MySQL 连接（可选）
+cd scripts
+go build -o test_mysql.exe test_mysql_connection.go
+./test_mysql.exe -config ../config.example.json
+
+# 7. 启动系统
+cd ..
 ./bin/log-processor -config config.example.json
 
-# 4. 打开 Web 界面
-# 浏览器访问 http://localhost:8080
+# 8. 打开 Web 界面
+# 浏览器自动打开 http://localhost:8080
 ```
 
 或直接运行（无需预编译）：
@@ -104,7 +143,7 @@ bin/           # 编译产物
 处理器层 (多 Worker 并行解析)
     │
     ▼
-存储层 (AsyncStorage 缓冲 → SQLite WAL 批量写入)
+存储层 (AsyncStorage 缓冲 → MySQL 批量写入)
     │
     ▼
 API / Web 层 (Gin, :8080)

@@ -37,10 +37,18 @@
     "max_lines": 100000
   },
   "storage": {
-    "type": "sqlite",
-    "db_path": "./data/logs.db",
-    "max_memory_items": 100000,
-    "retention_hours": 168
+    "type": "mysql",
+    "retention_hours": 168,
+    "mysql": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "log_processor",
+      "password": "your_password",
+      "database": "log_processor",
+      "max_open_conns": 100,
+      "max_idle_conns": 10,
+      "conn_max_lifetime": 60
+    }
   },
   "receiver": {
     "tcp_enabled": true,

@@ -1,0 +1,62 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "api_token": "",
+    "cors_origins": []
+  },
+  "parser": {
+    "format": "auto"
+  },
+  "processor": {
+    "worker_count": 20,
+    "batch_size": 2000,
+    "batch_timeout": 500,
+    "overflow_enabled": true,
+    "overflow_dir": "./data/overflow",
+    "overflow_max_disk_mb": 512,
+    "overflow_drain_batch": 1000,
+    "overflow_drain_interval_ms": 200
+  },
+  "receiver": {
+    "tcp_enabled": true,
+    "tcp_port": 9000,
+    "udp_enabled": true,
+    "udp_port": 9001,
+    "http_enabled": true,
+    "http_port": 9002,
+    "http_auth_token": "",
+    "http_allowed_ips": [],
+    "http_max_body_size": 0,
+    "http_rate_limit": 0,
+    "buffer_size": 8192,
+    "max_connections": 1000
+  },
+  "storage": {
+    "type": "mysql",
+    "retention_hours": 168,
+    "mysql": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "123456",
+      "database": "log_processor",
+      "max_open_conns": 100,
+      "max_idle_conns": 10,
+      "conn_max_lifetime": 60
+    }
+  },
+  "alert": {
+    "slow_threshold": 1000,
+    "error_rate_threshold": 5
+  },
+  "display": {
+    "page_size": 50,
+    "refresh_interval": 10,
+    "columns": ["timestamp", "method", "path", "status_code", "response_time", "client_ip"]
+  },
+  "import": {
+    "max_lines": 100000,
+    "concurrency": 1
+  }
+}

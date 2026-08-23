@@ -59,16 +59,16 @@ func main() {
 	os.MkdirAll("./temp", 0755)
 
 	// 初始化存储
-	sqliteStore, err := storage.NewSQLiteStorage(cfg.Get().Storage)
+	baseStore, err := storage.NewStorage(cfg.Get().Storage)
 	if err != nil {
 		log.Fatalf("初始化存储失败: %v", err)
 	}
 	
-	// 使用异步存储包装器，最大化 SQLite 单线程性能
+	// 使用异步存储包装器，提升写入性能
 	// buffer=50000: 缓冲5万条日志
 	// batch=1000: 每批写入1000条
 	// interval=100ms: 最长100ms刷新一次
-	store := storage.NewAsyncStorage(sqliteStore, 50000, 1000, 100*time.Millisecond)
+	store := storage.NewAsyncStorage(baseStore, 50000, 1000, 100*time.Millisecond)
 	log.Println("[INFO] 启用异步存储模式，写入缓冲: 50000条")
 
 	// 初始化解析器

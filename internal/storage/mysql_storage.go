@@ -356,4 +356,104 @@ func (s *MySQLStorage) buildWhereClause(filter models.FilterCondition) (string, 
 	return "", args
 }
 
-// CONTINUATION_MARKER_6
+// scanRows 扫描行
+func (s *MySQLStorage) scanRows(rows *sql.Rows) ([]*models.LogEntry, error) {
+	var entries []*models.LogEntry
+
+	for rows.Next() {
+		entry := &models.LogEntry{ExtraFields: make(map[string]string)}
+		var extraFieldsStr sql.NullString
+		var aiAnalyzedAt sql.NullTime
+
+		err := rows.Scan(
+			&entry.ID, &entry.Timestamp, &entry.ProjectID, &entry.ProjectName,
+			&entry.Environment, &entry.ServiceName, &entry.Source, &entry.Level,
+			&entry.LogType, &entry.Method, &entry.Path, &entry.StatusCode,
+			&entry.ResponseTime, &entry.ClientIP, &entry.UserAgent, &entry.Referer,
+			&entry.RequestSize, &entry.ResponseSize, &entry.ErrorMessage,
+			&entry.ErrorCode, &entry.StackTrace, &entry.RequestID, &entry.UserID,
+			&entry.SessionID, &entry.AIAnalyzed, &entry.AIAnalysis,
+			&entry.AISuggestions, &aiAnalyzedAt, &extraFieldsStr,
+			&entry.RawData, &entry.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("Scan error: %v", err)
+			continue
+		}
+
+		if aiAnalyzedAt.Valid {
+			entry.AIAnalyzedAt = &aiAnalyzedAt.Time
+		}
+
+		if extraFieldsStr.Valid && extraFieldsStr.String != "" {
+			json.Unmarshal([]byte(extraFieldsStr.String), &entry.ExtraFields)
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, rows.Err()
+}
+
+func (s *MySQLStorage) cleanupRoutine() {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.cleanup()
+	}
+}
+
+func (s *MySQLStorage) cleanup() {
+	s.mu.RLock()
+	retentionHours := s.config.RetentionHours
+	s.mu.RUnlock()
+
+	if retentionHours <= 0 {
+		return
+	}
+
+	cutoff := time.Now().Add(-time.Duration(retentionHours) * time.Hour)
+	_, err := s.db.Exec("DELETE FROM logs WHERE timestamp < ?", cutoff)
+	if err != nil {
+		log.Printf("Cleanup failed: %v", err)
+	}
+
+	s.db.Exec("OPTIMIZE TABLE logs")
+}
+
+func (s *MySQLStorage) Delete(id string) error {
+	result, err := s.db.Exec("DELETE FROM logs WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if affected == 0 {
+		return fmt.Errorf("log not found: %s", id)
+	}
+
+	return nil
+}
+
+func (s *MySQLStorage) Clear() error {
+	_, err := s.db.Exec("TRUNCATE TABLE logs")
+	return err
+}
+
+func (s *MySQLStorage) UpdateConfig(cfg config.StorageConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.config = cfg
+	return nil
+}
+
+func (s *MySQLStorage) Close() error {
+	return s.db.Close()
+}
+

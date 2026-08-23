@@ -37,8 +37,17 @@
     "buffer_size": 65536
   },
   "storage": {
-    "type": "sqlite",
-    "db_path": "./data/logs.db",
-    "retention_hours": 168
+    "type": "mysql",
+    "retention_hours": 168,
+    "mysql": {
+      "host": "localhost",
+      "port": 3306,
+      "user": "log_processor",
+      "password": "your_password",
+      "database": "log_processor",
+      "max_open_conns": 200,
+      "max_idle_conns": 20,
+      "conn_max_lifetime": 60
+    }
   }
 }

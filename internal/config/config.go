@@ -71,10 +71,25 @@ type ImportConfig struct {
 
 // StorageConfig 存储配置
 type StorageConfig struct {
-	Type           string `json:"type"`
-	DBPath         string `json:"db_path,omitempty"`
+	Type           string `json:"type"` // sqlite | mysql
+	DBPath         string `json:"db_path,omitempty"` // SQLite 数据库路径
 	MaxMemoryItems int    `json:"max_memory_items,omitempty"`
 	RetentionHours int    `json:"retention_hours"`
+	
+	// MySQL 配置
+	MySQL MySQLConfig `json:"mysql,omitempty"`
+}
+
+// MySQLConfig MySQL 数据库配置
+type MySQLConfig struct {
+	Host            string `json:"host"`
+	Port            int    `json:"port"`
+	User            string `json:"user"`
+	Password        string `json:"password"`
+	Database        string `json:"database"`
+	MaxOpenConns    int    `json:"max_open_conns"`
+	MaxIdleConns    int    `json:"max_idle_conns"`
+	ConnMaxLifetime int    `json:"conn_max_lifetime"` // 分钟
 }
 
 // ReceiverConfig 接收器配置
